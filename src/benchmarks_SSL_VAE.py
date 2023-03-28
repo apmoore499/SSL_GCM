@@ -8,22 +8,14 @@ import contextlib
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
-
-from benchmarks_utils import *
-
-import sys
-import argparse
-from typing import Optional
-import time
-
-
-import argparse
-
-import torch
 import torch.distributions as D
 from torch.utils.data import DataLoader
 from typing import Optional
+from benchmarks_utils import *
+import time
+import argparse
+
+
 
 
 # -----------------------------------

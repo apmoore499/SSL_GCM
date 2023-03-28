@@ -19,19 +19,15 @@ import time
 import plotly.graph_objects as go
 import matplotlib
 matplotlib.use('Agg')
-from coloraide import Color
-# coloraide used to create continuous colour scale for plot of decision boundary
-# coloraide package https://pypi.org/project/coloraide/
+from coloraide import Color # coloraide used to create continuous colour scale for plot of decision boundary,https://pypi.org/project/coloraide/
 from PIL import Image
 import json
 
 from mlxtend.plotting import plot_decision_regions
 import matplotlib.pyplot as plt
-
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import numpy as np
-
 import sys
 sys.path.append('./py/generative_models/')
 from benchmarks_cgan import load_dsc, manipulate_dsc, load_real_data_legacy
@@ -91,18 +87,9 @@ def combined_name(model_name,d_n,s_i):
 #delete old saved models before starting new training run
 def clear_saved_models(model_name, save_dir, s_i):
     old_fn_match = f'{model_name}*-s_i={s_i}-*.ckpt'
-
     old_models = glob.glob(f'{save_dir}/saved_models/{old_fn_match}')
     delete_models = [m for m in old_models]
-
-    #print('old models: ')
-    #print(old_models)
-    #print('old_fn_match: ')
-    #print(old_fn_match)
-    #print(delete_models)
     for d in delete_models:
-        #print('deleted: ')
-        #print(d)
         os.remove(d)
     return
 
@@ -153,15 +140,6 @@ def get_gpu_kwargs(args):
 #returns standard net architecture
 #change to wider shape based on discussion w HJ/MMG 23_02_2022
 def get_standard_net(input_dim,output_dim):
-    #net = nn.Sequential(
-    #        nn.Linear(input_dim, 10),
-    #        nn.ReLU(),
-    #        nn.Linear(10, 5),
-    #        nn.ReLU(),
-    #        nn.Linear(5, 3),
-    #        nn.ReLU(),
-    #        nn.Linear(3, output_dim)
-    #    )
     net = nn.Sequential(
         nn.Linear(input_dim, 100),
         nn.ReLU(),
@@ -446,13 +424,6 @@ def return_test_ulab_for_sql(dspec, args, si_iter,current_model,optimal_model,or
     #np.savetxt(filepath, test_acc)
 
     unlabel_acc = np.array([unlabel_acc.cpu().detach().item()])
-    #filepath = "{0}/saved_models/{1}-s_i={2}_unlabel_acc.out".format(dspec.save_folder,
-    #                                                                 current_model.model_name,
-    #                                                                 optimal_trainer.model.hparams['s_i'])
-    #np.savetxt(filepath, unlabel_acc)
-
-    #print(f'test_acc: {test_acc}')
-    #print(f'unlabel_acc: {unlabel_acc}')
 
     resdict={'test_acc':test_acc,
             'unlabel_acc':unlabel_acc}
@@ -491,15 +462,11 @@ get_softmax = torch.nn.Softmax(dim=1)  # need this to convert classifier predict
 # USING THE MACHINE LEARNING TOOLS LIBRARY ie, with function ```plot_decision_regions```
 
 #get decision boundary dicts to plot the decision boundary
-#def get_dec_dicts(model_name, current_model, dspec, orig_data, s_i, d_n):
+
 def get_dec_dicts(model_name, current_model, dspec, dsc):
     # wrangling data
 
     print('pausing here')
-
-    # labelled
-    #Xl = orig_data['label_features'].numpy()
-    #yl = orig_data['label_y'].numpy().argmax(1)
 
     lab_dat=dsc.merge_dat[dsc.merge_dat.type == 'labelled']
     ulab_dat=dsc.merge_dat[dsc.merge_dat.type == 'unlabelled']
@@ -595,9 +562,6 @@ def get_dec_dicts(model_name, current_model, dspec, dsc):
         list_all_db_dicts.append(dec_dict_lab)
         list_all_db_dicts.append(dec_dict_ulab)
         list_all_db_dicts.append(dec_dict_all)
-
-
-    #list_all_db_dicts=[all_db_dicts[k] for k in all_db_dicts.keys()]
 
 
     return (list_all_db_dicts)
@@ -877,12 +841,6 @@ def plot_dboundary(dsc, dbound_img, model_name,  d_n, s_i, X1='X1_0', X2='X1_1',
             sizing="stretch")
     )
 
-    # fig.update_layout(width=out_im.size[0],height=out_im.size[1])
-
-    # Configure axes
-    # fig.update_yaxes(visible=False)
-    # fig.update_xaxes(visible=False)
-
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255, 255, 255, 0.2)', zeroline=False)
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255, 255, 255, 0.2)', zeroline=False)
 
@@ -974,3 +932,97 @@ def get_dspec(d_n):
     dspec = dspec.loc[d_n]  # use this as reerence..
     dspec.d_n = str(d_n) if dspec.d_n_type == 'str' else int(d_n)
     return(dspec)
+
+
+
+
+
+# combine synthetic data w original labelled data
+class CGANSupervisedDataModule(pl.LightningDataModule):
+    def __init__(self, orig_data, synth_dd,inclusions, batch_size: int = 64):
+        super().__init__()
+        self.orig_data = orig_data
+        self.batch_size = batch_size
+        self.synth_dd=synth_dd
+        self.inclusions=inclusions
+
+    def setup(self, stage: Optional[str] = None):
+        orig_data = self.orig_data
+        synth_dd=self.synth_dd
+
+        # ----------#
+        # Training Labelled
+        # ----------#
+        X_train_lab = orig_data['label_features']
+        y_train_lab = orig_data['label_y'].long()
+
+        # ----------#
+        # Training Unlabelled
+        # ----------#
+        X_train_ulab = orig_data['unlabel_features']
+        y_train_ulab = orig_data['unlabel_y'].long()
+
+        # -------------#
+        # Validation
+        # -------------#
+
+        X_val = orig_data['val_features']
+        y_val = orig_data['val_y'].long()
+
+        # ----------#
+        # Synthetic Data
+        # ----------#
+        X_train_synthetic = synth_dd['synthetic_features']
+        y_train_synthetic = synth_dd['synthetic_y'].long().reshape(-1,1)
+
+
+
+        #print(self.inclusions)
+        if self.inclusions == 'orig_and_synthetic':
+            X_train_total = torch.cat((X_train_lab, X_train_synthetic), 0)
+            y_train_total = torch.cat((y_train_lab.flatten(), y_train_synthetic.flatten()), 0).reshape((-1,1))
+
+
+        elif self.inclusions=='orig_only':
+
+            # -------------#
+            # Setting up resampling
+            # -------------#
+
+            n_unlabelled = X_train_ulab.shape[0]
+            n_labelled = X_train_lab.shape[0]
+            dummy_label_weights = torch.ones(n_labelled)
+            resampled_i = torch.multinomial(dummy_label_weights, num_samples=n_unlabelled, replacement=True)
+            X_train_lab_rs = X_train_lab[resampled_i]
+            y_train_lab_rs = y_train_lab[resampled_i]
+
+
+            X_train_total = X_train_lab_rs
+            y_train_total = y_train_lab_rs.flatten().reshape((-1,1))
+
+
+        elif self.inclusions=='synthetic_only':
+            X_train_total = X_train_synthetic
+            y_train_total = y_train_synthetic.reshape((-1,1))
+        else:
+            assert(1==0)
+
+
+        self.data_train = torch.utils.data.TensorDataset(X_train_total,
+                                                         y_train_total)
+
+        # Validation Sets
+        vfeat = X_val.unsqueeze(0)
+        vlab = y_val.unsqueeze(0)
+        self.data_validation = torch.utils.data.TensorDataset(vfeat, vlab)
+        self.nval = vlab.shape[0]
+
+        return (self)
+
+    def train_dataloader(self):
+        return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
+
+    def val_dataloader(self):
+        return DataLoader(self.data_validation, batch_size=self.nval)
+
+

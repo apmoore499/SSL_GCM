@@ -9,17 +9,6 @@ import os
 import pickle
 from igraph import Graph
 
-#from benchmarks_utils import *
-
-# getting sachs dataset
-
-#s_data, s_graph = load_dataset('sachs')
-#m_plcg=s_data['plcg'].median()
-#s_data['plcg_amedian']=s_data.plcg>m_plcg
-#pd.DataFrame(s_data,dtype='float').drop(columns=['plcg']).to_csv('s_data_plcg_amed.csv',index=False)
-#pd.DataFrame(s_data).to_csv('s_data.csv',index=False)
-
-
 
 ############################
 #
@@ -126,11 +115,6 @@ def create_data_class(dag_df,values,label_var,n_labelled=50,n_validation=100,s_i
 
 
 def val_split_real(in_df,label_var,n_labelled,n_validation,enforce_strict=True):
-    #self.pc_labelled=pc_labelled
-    # split into val/labelled/unlabelled
-
-    # first split into labelled AND unlabelled to ensure
-    # proportionate representation of each class label in labelled / unlabelled set
 
     # split into class1 and class0
 

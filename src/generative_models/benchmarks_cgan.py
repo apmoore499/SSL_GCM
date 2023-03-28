@@ -3,7 +3,6 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 import torchmetrics
 from pytorch_lightning.callbacks import ModelCheckpoint
-
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import numpy as np
@@ -212,15 +211,7 @@ def get_three_net(input_dim,output_dim,middle_layer_n):
 
 # returns standard net architecture
 def get_standard_net(input_dim,output_dim):
-    #net = nn.Sequential(
-    #        nn.Linear(input_dim, 10),
-    #        nn.ReLU(),
-    #        nn.Linear(10, 5),
-    #        nn.ReLU(),
-    #        nn.Linear(5, 3),
-    #        nn.ReLU(),
-    #        nn.LineaXr(3, output_dim)
-    #    )
+
     net = nn.Sequential(
         nn.Linear(input_dim, 100),
         nn.ReLU(),
@@ -1073,10 +1064,6 @@ class DAG_dset:
         return (self)
 
     def subset_tensors(self):
-
-        # need to set self.feature_varnames
-
-        # need to set self.class_varname
 
         all_vars = [c for c in self.merge_dat.columns]
 

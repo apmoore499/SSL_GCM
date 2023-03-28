@@ -8,25 +8,16 @@ import contextlib
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
-
-from benchmarks_utils import *
-
-import sys
-import argparse
-from typing import Optional
-import time
-
-
-import argparse
-
 import torch
 import torch.distributions as D
 from torch.utils.data import DataLoader
 from typing import Optional
+
+from benchmarks_utils import *
+import sys
+import argparse
+import time
 has_gpu=False
-
-
 import sqlite3
 import os
 import pandas as pd
@@ -287,32 +278,6 @@ if __name__ == '__main__':
             print('not already exist for this one: proceed')
             conn.close()
 
-       # ID
-        #from application
-
-        #")
-        #"SELECT salary FROM SqliteDb_developers WHERE id = "
-        #ID
-        #from application
-
-        #")
-        #cmd_str = f'''INSERT INTO {sql_model_name} VALUES ('{model_name}','{args.d_n}',{args.s_i},{args.lr},{args.tot_bsize},'{device}',{unlabel_acc},{test_acc},'{args_sql}','{model_init_args_sql}','{cgan_args_sql}')'''
-
-        #WHERE
-        #column_1 = 100;
-
-        #WHERE
-        #column_2
-        #IN(1, 2, 3);
-
-        #current_cursor = conn.cursor()
-        #current_cursor.execute(cmd_str)
-        # Save (commit) the changes
-        #conn.commit()
-        # We can also close the connection if we are done with it.
-        # Just be sure any changes have been committed or they will be lost.
-        #conn.close()
-
         # START TIME
         st = time.time()
 
@@ -380,15 +345,10 @@ if __name__ == '__main__':
         # EVALUATE ON DATA
         evaluate_on_test_and_unlabel(dspec, args, si_iter, current_model, optimal_model, orig_data, optimal_trainer)
 
-
         sql_res=return_test_ulab_for_sql(dspec, args, si_iter, current_model, optimal_model, orig_data, optimal_trainer)
-
 
         print('unlabel prediction acc: ')
         print((optimal_model.predict(orig_data['unlabel_features']) == orig_data['unlabel_y'].argmax(1).numpy()).mean())
-
-        print('pausing here')
-
 
         print('plotting decision boundaries (plotly)')
 
@@ -402,70 +362,4 @@ if __name__ == '__main__':
         # DELETE OPTIMALS SO CAN RESTART IF DOING MULTIPLE S_I
         del optimal_trainer
         del optimal_model
-
-
-
-#now write to SQL database
-
-
-
-
-args_sql=json.dumps(vars(args))
-
-
-#model init args convert to not int64
-
-model_init_args_sql=json.dumps(model_init_args)
-
-
-try:
-    cgan_args_sql = json.dumps(cgan_args)
-except:
-    print('cgan args not in namespace')
-    cgan_args_sql=''
-finally:
-    next
-
-
-#attempt to connect
-conn = sqlite3.connect(SQL_DB_NAME,timeout=60.0)
-current_cursor = conn.cursor()
-test_acc=float(sql_res['test_acc'][0])
-unlabel_acc=float(sql_res['unlabel_acc'][0])
-
-
-device=get_sql_working_device()
-
-
-# get time
-
-
-time_of_execution=time.time()
-
-#replace 'CLASSIFIER' string
-if 'CGAN' in model_name:
-    model_name=model_name
-else:
-    if '_CLASSIFIER' in model_name:
-        model_name=model_name.replace('_CLASSIFIER','')
-
-cmd_str=f'''INSERT INTO {model_name} VALUES ('{model_name}','{args.d_n}',{args.s_i},{args.lr},{args.tot_bsize},'{device}',{unlabel_acc},{test_acc},{time_of_execution},'{args_sql}','{model_init_args_sql}','{cgan_args_sql}')'''
-current_cursor.execute(cmd_str)
-# Save (commit) the changes
-conn.commit()
-# We can also close the connection if we are done with it.
-# Just be sure any changes have been committed or they will be lost.
-conn.close()
-
-
-
-
-
-#current_cursor = conn.cursor()
-#for m in model_names:
-#    cmd_str=f'CREATE TABLE {m} (d_n text, s_i integer, args blob, model_init_args blob, cgan_args blob)'
-#    current_cursor.execute(cmd_str)
-#    print(f'db created for model: {m}')
-
-#conn.close()
 

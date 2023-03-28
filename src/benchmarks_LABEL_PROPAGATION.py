@@ -10,8 +10,6 @@ from torch.utils.data import DataLoader
 from typing import Optional
 
 
-
-
 class LabelPropagationClassifier(pl.LightningModule):
     def __init__(self, lr, d_n, s_i, alpha_pl, input_dim, output_dim, dn_log, lppclassifier=None):
         super().__init__()
@@ -51,15 +49,9 @@ class LabelPropagationClassifier(pl.LightningModule):
 
         x_hat_labelled = get_softmax(self.classifier(x))
         y_labelled = y
-        # current_labelled_i = torch.where(lab == 1)
-        # current_unlabelled_i = torch.where(lab == 0)
-
         labelled_loss = torch.nn.functional.cross_entropy(x_hat_labelled, y_labelled)
 
         x_hat_unlabelled = get_softmax(self.classifier(x_ulab))
-
-        # unlabelled_prediction = pseudo_prediction[current_unlabelled_i]
-
         pseudo_labels = torch.argmax(x_hat_unlabelled, 1)
         unlabelled_loss = torch.nn.functional.cross_entropy(x_hat_unlabelled, pseudo_labels)
 
@@ -73,7 +65,6 @@ class LabelPropagationClassifier(pl.LightningModule):
         total_loss = labelled_loss + self.hparams['alpha_pl'] * unlabelled_loss  # calculate loss term
         loss = total_loss
         self.log('train_loss', loss, on_step=LOG_ON_STEP, on_epoch=CHECK_ON_TRAIN_END)
-        #print(self.global_step)
 
         return (loss)
 
@@ -259,46 +250,6 @@ if __name__ == '__main__':
         st = time.time()
 
         for t in range(args.n_trials):
-            # -----------------------------------
-            #     Training pre-classifier
-            # -----------------------------------
-
-            # CREATE MODEL
-            # current_model = LabelPropagationPreClassifier(**model_init_args)  # define model
-
-            # INITIALISE WEIGHTS
-            # current_model.apply(init_weights_he_kaiming)  # re init model and weights
-
-            # TRAINING CALLBACKS
-            # callbacks = []
-            # max_pf_checkpoint_callback = return_chkpt_max_val_acc(current_model.model_name,
-            # dspec.save_folder)  # returns max checkpoint
-
-            # if args.metric == 'val_bce':
-            #    estop_cb = return_estop_val_bce(patience=args.estop_patience)
-            # elif args.metric == 'val_acc':
-            #    estop_cb = return_estop_val_acc(patience=args.estop_patience)
-
-            # callbacks.append(max_pf_checkpoint_callback)
-            # callbacks.append(estop_cb)
-
-            # TENSORBOARD LOGGER
-            # tb_logger = get_default_logger(current_model.model_name, args.d_n, si_iter, t)
-
-            # TRAINER
-            # trainer = get_default_trainer(args, tb_logger, callbacks, DETERMINISTIC_FLAG, min_epochs=args.min_epochs, **gpu_kwargs)
-
-            # DELETE OLD SAVED MODELS
-            # clear_saved_models(current_model.model_name, dspec.save_folder, si_iter)
-
-            # TRAIN
-            # trainer.fit(current_model, ssld)
-
-            # LOAD OPTIMAL MODEL FROM CURRENT TRAINING
-            # optimal_preclassifier =  load_optimal_model(dspec, current_model)
-
-            # NOW, INIT NEW LABEL PROPAGATION CLASSIFIER
-
             # -----------------------------------
             #     Training LABEL PROPAGATION model
             # -----------------------------------

@@ -123,12 +123,7 @@ def create_data_class(dag_df, values, label_var, n_labelled=20, n_validation=20,
     return (spam_dat)
 
 def val_split_real(in_df, label_var, n_labelled, n_validation, n_test,n_unlabelled=None):
-    # self.pc_labelled=pc_labelled
-    # split into val/labelled/unlabelled
-
-    # first split into labelled AND unlabelled to ensure
-    # proportionate representation of each class label in labelled / unlabelled set
-
+    
     # split into class1 and class0
 
     merge_dat_c0 = in_df[in_df[label_var] == 0]
@@ -563,12 +558,6 @@ for s_i in range(100):
 #-----------------------------------
 #     BREAST CANCER WISCONSIN DATASET
 #-----------------------------------
-
-
-# read in DAG
-# read in values
-
-
 
 RANDOM_SEED = 102
 rng = default_rng(RANDOM_SEED)

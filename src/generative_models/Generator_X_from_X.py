@@ -122,26 +122,18 @@ class Generator_X_from_X(pl.LightningModule):
         #prediction
         x_hat=self.gen(gen_input).float()
         
-
-
         trans_mmd_loss=mix_rbf_mmd2_joint_regress(x_hat,
                                         trans_feat_target,
                                         trans_feat_cond,
                                         trans_feat_cond,
                                         sigma_list=sigma_list_target_x,
                                         sigma_list1=sigma_list_conditional_x)
-
         
-
-
-
         self.log("val_mmd", val_mmd_loss)
         self.log("trans_mmd",trans_mmd_loss)
         
         self.vmmd_losses.append(val_mmd_loss.detach().item())
 
-        #self.log("hp_metric", min(self.vmmd_losses))
-        #set_trace()
         print('val mmd loss: {0}'.format(val_mmd_loss))
         print('t mmd loss: {0}'.format(trans_mmd_loss))
 

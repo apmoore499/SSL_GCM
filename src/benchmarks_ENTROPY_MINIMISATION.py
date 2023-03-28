@@ -1,6 +1,5 @@
 from benchmarks_utils import *
 import sys
-
 sys.path.append('./py/generative_models/')
 from benchmarks_cgan import *
 
@@ -8,22 +7,12 @@ import contextlib
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
-
-from benchmarks_utils import *
-
-import sys
-import argparse
-from typing import Optional
-import time
-
-
-import argparse
-
-import torch
 import torch.distributions as D
 from torch.utils.data import DataLoader
 from typing import Optional
+import time
+import argparse
+
 
 
 
@@ -61,7 +50,6 @@ class EntropyMinimisationClassifier(pl.LightningModule):
         loss_u = (-output_u * torch.log(output_u + 1e-5)).sum(1).mean()
         loss = loss_gl + loss_u * self.hparams['lmda']
         self.log('train_loss', loss, on_step=LOG_ON_STEP, on_epoch=CHECK_ON_TRAIN_END)
-        # print(loss)
         return loss
 
     def configure_optimizers(self):
@@ -71,23 +59,14 @@ class EntropyMinimisationClassifier(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         val_feat = batch[0].squeeze(0)
         val_y = batch[1].squeeze(0)
-        # trans_feat = batch[2].squeeze(0)
-        # trans_y = batch[3].squeeze(0)
+
         # get val loss
         y_hat = self.classifier(val_feat)
         v_acc = get_accuracy(y_hat, val_y)
-        # get transduction loss
-        # y_hat = self.classifier(trans_feat)
-        # t_acc = get_accuracy(y_hat, trans_y)
 
         # log them
         self.log("val_acc", v_acc, on_step=LOG_ON_STEP, on_epoch=CHECK_ON_TRAIN_END)
-        # self.log("t_acc", t_acc)
-        # print
-        # print('val acc: {0}'.format(v_acc))
-        # print('t_acc: {0}'.format(t_acc))
         self.val_accs.append(v_acc.item())
-
         self.log("d_n", self.hparams['dn_log'])
         self.log("s_i", self.hparams['s_i'])
 
@@ -202,7 +181,7 @@ if __name__ == '__main__':
     candidate_si = csi[~np.isnan(csi)]
     args.optimal_si_list = [int(s) for s in candidate_si]
     if args.use_single_si == True:  # so we want to use single si, not entire range
-        # args.optimal_si_list=[args.optimal_si_list[args.s_i]]
+
         args.optimal_si_list = [args.s_i]
 
     gpu_kwargs = get_gpu_kwargs(args)
