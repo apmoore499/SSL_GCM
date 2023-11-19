@@ -64,10 +64,26 @@ class Generator_X1(pl.LightningModule):
         #get median pwd of val only and see if it maeks a difference
         val_feat=batch[0].squeeze(0)
         trans_feat = batch[1].squeeze(0)
+        
+        
+
+        
+        if val_feat.shape[0]>10000:
+            val_feat=val_feat[torch.randperm(10000),:]
+
         gen_input=torch.randn_like(val_feat) #sample noise
         x_hat=self.gen(gen_input) #generate x samples random
         #get rbf mmd2 joint
+
         val_mmd_loss=mix_rbf_mmd2(x_hat,val_feat,sigma_list=sigma_list)
+        
+        #if x_hat.shape[0]>50000, too big:
+        
+        if trans_feat.shape[0]>10000:
+            trans_feat=trans_feat[torch.randperm(10000),:]
+
+
+
         gen_input = torch.randn_like(trans_feat)  # sample noise
         x_hat = self.gen(gen_input)  # generate x samples random
         trans_mmd_loss=mix_rbf_mmd2(x_hat,trans_feat,sigma_list=sigma_list)

@@ -21,7 +21,7 @@ import torch.nn as nn
 from numpy.random import normal
 import torch
 from torch.utils.data import DataLoader, Dataset
-from sklearn.metrics import pairwise_distances
+from sklearn.metrics import pairwise_distances,pairwise_distances_chunked
 import glob
 import warnings
 import igraph
@@ -179,9 +179,9 @@ def create_trainer(logger,callbacks,gpu_kwargs,max_epochs):
                          max_epochs=max_epochs,
                          callbacks=callbacks,
                         logger=logger,
-                        progress_bar_refresh_rate=0,
-                        reload_dataloaders_every_n_epochs=1,
-                        **gpu_kwargs)
+                        #progress_bar_refresh_rate=0,
+                        reload_dataloaders_every_n_epochs=1)
+                        #**gpu_kwargs)
     return(trainer)
 
 
@@ -386,13 +386,13 @@ def get_merge_dat_from_orig(orig_data,feature_cols):
             orig_data[k].columns=feature_cols
         elif '_y' in k[-2:]:
             orig_data[k].columns=['Y_0']
-    dm1=pd.concat([orig_data['label_features'],orig_data['label_y']],1)
+    dm1=pd.concat([orig_data['label_features'],orig_data['label_y']],axis=1)
     dm1['type']='labelled'
-    dm2=pd.concat([orig_data['unlabel_features'],orig_data['unlabel_y']],1)
+    dm2=pd.concat([orig_data['unlabel_features'],orig_data['unlabel_y']],axis=1)
     dm2['type']='unlabelled'
-    dm3=pd.concat([orig_data['val_features'],orig_data['val_y']],1)
+    dm3=pd.concat([orig_data['val_features'],orig_data['val_y']],axis=1)
     dm3['type']='validation'
-    merge_dat=pd.concat([dm1,dm2,dm3],0,ignore_index=True)
+    merge_dat=pd.concat([dm1,dm2,dm3],axis=0,ignore_index=True)
     return(merge_dat)
 
 
@@ -775,7 +775,7 @@ def samples_dict_to_df(dsc, synthetic_data, balance_labels=True,exact=False):
 
     # bind all to dataframe...
     join_dfs = [synthetic_df[k] for k in synthetic_data.keys()]
-    joined_synthetic_data = pd.concat(join_dfs, 1)
+    joined_synthetic_data = pd.concat(join_dfs, axis=1)
     joined_synthetic_data['type'] = 'synthetic'
 
     if balance_labels and exact:
@@ -797,7 +797,7 @@ def samples_dict_to_df(dsc, synthetic_data, balance_labels=True,exact=False):
         #now we have how many label==0,1?
         print('number of samples w label==1: {0}'.format(synth_c1.shape[0]))
         print('number of samples w label==0: {0}'.format(synth_c0.shape[0]))
-        joined_synthetic_data = pd.concat((synth_c0, synth_c1), 0, ignore_index=True)
+        joined_synthetic_data = pd.concat((synth_c0, synth_c1), axis=0, ignore_index=True)
         print('total size of df: {0} rows'.format(joined_synthetic_data.shape[0]))
 
 
@@ -832,7 +832,7 @@ def samples_dict_to_df(dsc, synthetic_data, balance_labels=True,exact=False):
         #now we have how many label==0,1?
         print('number of samples w label==1: {0}'.format(synth_c1.shape[0]))
         print('number of samples w label==0: {0}'.format(synth_c0.shape[0]))
-        joined_synthetic_data = pd.concat((synth_c0, synth_c1), 0, ignore_index=True)
+        joined_synthetic_data = pd.concat((synth_c0, synth_c1), axis=0, ignore_index=True)
         print('total size of df: {0} rows'.format(joined_synthetic_data.shape[0]))
 
 
@@ -1702,18 +1702,59 @@ def delete_old_saved_models(model_name, save_dir, s_i):
         os.remove(d)
 
 
+
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+
 #-----------------------------------
 #     misc functions
 #-----------------------------------
 
 # get median pairwise distance of in_tensor
+# def get_median_pwd(in_tensor):
+    
+#     npi=[d for d in pairwise_distances_chunked(in_tensor.cpu().detach().numpy().astype(np.float32))]
+#     retval = np.median(npi)
+#     return (retval)
+
+# get median pairwise distance of in_tensor
 def get_median_pwd(in_tensor):
-    retval = np.median(pairwise_distances
-                       (in_tensor
-                        .cpu()
-                        .detach()
-                        .numpy()))
-    return (retval)
+    # Number of neighbors to consider for approximate median calculation
+    n_neighbors = 10
+
+    # Create a nearest neighbors model
+    nn = NearestNeighbors(n_neighbors=n_neighbors, algorithm='auto')
+    
+    data=in_tensor.cpu().detach().numpy()
+    nn.fit(data)
+
+    # Query neighbors for each point
+    distances, _ = nn.kneighbors(data)
+
+    # Compute median pairwise distances for each point
+    median_distances = np.median(distances, axis=1)
+
+    # Compute the overall median
+    overall_median_distance = np.median(median_distances)
+    
+    return (overall_median_distance)
+    
+    #using approxi method with neareast neighoburts to speed upe
+    
+    #npi=[d for d in pairwise_distances_chunked(in_tensor.cpu().detach().numpy().astype(np.float32))]
+    #retval = np.median(npi)
+    #return (retval)
+
+
+    # # Generate random data (replace this with your actual data)
+    # n_samples = 1000
+    # n_features = 10
+    # data = np.random.rand(n_samples, n_features)
+
+
+
+    #print("Overall Median Pairwise Distance:", overall_median_distance)
+
 
 # plot the dag
 def plotting_dag(ds,dn):

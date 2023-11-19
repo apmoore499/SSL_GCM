@@ -46,6 +46,8 @@ class TripleGANClassifier(pl.LightningModule):
         classification = self.classifier(x)
         return classification
 
+
+
     def training_step(self, batch, batch_idx, optimizer_idx):
         x_l, y_l, x_ul = batch
         D_x, D_y = x_l, y_l

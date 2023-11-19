@@ -28,6 +28,9 @@ from generative_models.benchmarks_cgan import *
 from parse_data import *
 import time
 
+
+torch.set_float32_matmul_precision('medium') #try with 4090
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--d_n', help='dataset number 1-5 OR MOG',type=str)
@@ -148,7 +151,7 @@ if __name__ == '__main__':
                 #subset
                 x_vals=all_x[cur_x_lab].to_numpy()
                 #get median pwd
-                median_pwd=get_median_pwd(torch.tensor(x_vals))
+                median_pwd=get_median_pwd(torch.tensor(x_vals,device='cpu'))
                 #make generator for X
                 curmod=0
                 gen_x=Generator_X1(args.lr,
@@ -189,7 +192,7 @@ if __name__ == '__main__':
                 trainer.fit(gen_x,tloader) #train here
 
                 mod_names=return_saved_model_name(model_name,dspec.save_folder,dspec.dn_log,s_i)
-                gen_x=gen_x.load_from_checkpoint(checkpoint_path=mod_names[0]) #loads correct model
+                gen_x=type(gen_x).load_from_checkpoint(checkpoint_path=mod_names[0]) #loads correct model
                 dsc_generators[dsc.labels[v_i]]=gen_x
                 dsc_generators[dsc.labels[v_i]].conditional_on_label = False
                 dsc_generators[dsc.labels[v_i]].conditional_feature_names = []
@@ -248,7 +251,7 @@ if __name__ == '__main__':
                 if len(mod_names)>1:
                     print('error duplicate model names')
                     assert 1==0
-                y_x1gen=y_x1gen.load_from_checkpoint(checkpoint_path=mod_names[0])
+                y_x1gen=type(y_x1gen).load_from_checkpoint(checkpoint_path=mod_names[0])
                 dsc_generators[dsc.labels[v_i]]=copy.deepcopy(y_x1gen)
                 dsc_generators[dsc.labels[v_i]].conditional_feature_names = cond_lab
                 dsc_generators[dsc.labels[v_i]].conditional_on_label = False
@@ -347,7 +350,7 @@ if __name__ == '__main__':
                     print('error duplicate model names')
                     assert 1 == 0
                 elif len(mod_names)==1:
-                    x2_y_gen = x2_y_gen.load_from_checkpoint(checkpoint_path=mod_names[0])
+                    x2_y_gen = type(x2_y_gen).load_from_checkpoint(checkpoint_path=mod_names[0])
                 else:
                     assert 1 == 0
 
@@ -430,7 +433,7 @@ if __name__ == '__main__':
                     print('error duplicate model names')
                     assert 1 == 0
                 elif len(mod_names)==1:
-                    genx_x = genx_x.load_from_checkpoint(checkpoint_path=mod_names[0])
+                    genx_x = type(genx_x).load_from_checkpoint(checkpoint_path=mod_names[0])
                 else:
                     assert 1 == 0
                 # training complete, save to list
@@ -584,7 +587,7 @@ if __name__ == '__main__':
                     print('error duplicate model names')
                     assert 1==0
                 elif len(mod_names)==1:
-                    genx2_yx1 = genx2_yx1.load_from_checkpoint(checkpoint_path=mod_names[0])
+                    genx2_yx1 = type(genx2_yx1).load_from_checkpoint(checkpoint_path=mod_names[0])
                 else:
                     assert 1==0
 
@@ -606,13 +609,13 @@ if __name__ == '__main__':
                 bmodel=create_model_name(k,'basic')
                 model_to_search_for=dspec.save_folder+'/saved_models/'+bmodel+"*-s_i={0}-epoch*".format(s_i)
                 candidate_models=glob.glob(model_to_search_for)
-                dsc_generators[k]=dsc_generators[k].load_from_checkpoint(checkpoint_path=candidate_models[0])
+                dsc_generators[k]=type(dsc_generators[k]).load_from_checkpoint(checkpoint_path=candidate_models[0])
 
         # generating synthetic data
         # generate 10000 samples
 
 
-        n_samples=30000
+        n_samples=int(30000*min(dspec.n_unlabelled/1000,5)) #try to set this to deal wtih very large unalbeleld size...
         #n_samples = dsc.merge_dat.shape[0]
         synthetic_samples_dict=generate_samples_to_dict(dsc,has_gpu,dsc_generators,device_string,n_samples)
         joined_synthetic_data=samples_dict_to_df(dsc,synthetic_samples_dict,balance_labels=True,exact=False)

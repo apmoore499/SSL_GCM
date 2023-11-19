@@ -20,6 +20,75 @@ import shutil
 
 
 
+import pandas as pd
+import numpy as np
+import plotly.express as px
+
+
+def return_d1(n_to_generate,x1x2,scale):
+    # now, let's say these rows each are element of polynomial kernel, of degree 2
+    # run x1,x2 thru each and plot if greater/lesser than, as per what is written directly above ^^
+
+    condition = 'not_met'
+
+    while condition == 'not_met':
+        # generate the hyperparameters for our polynomial kernel
+        rnd_init = np.random.random(size=(100, 5))
+        kernel_params = pd.DataFrame(rnd_init, columns=['X1^2', 'X2^2', 'X1', 'X2', 'X1X2'])
+
+
+        # find polynomial kernel terms for our data
+        pt = get_polynomial_d2_terms(x1x2)
+        pt = pd.DataFrame(pt)  # convert to dataframe
+
+        # index of row for testing our polynomial kernel
+        testrow = 0
+        # df.loc[testrow,]
+
+        test_k = pt * kernel_params.loc[testrow,]  # multiply by kernel elements
+        test_k['sum'] = test_k.sum(axis=1)  # sum results. note this is equivalent to W^(T)*X
+        #test_k['class'] = (test_k['sum'] > 1).astype(int)
+
+        #now transform by weighted sigmoid function: #26_03_2022 AM 10:13AM
+        sw = get_sigmoid_weighted(np.mean(test_k['sum']), scale=scale)
+        new_class = np.random.binomial(1, sw(test_k['sum']))
+        test_k['class'] = new_class
+
+        tm = 0.5  # if mean==0.5, classes are balanced exactly
+
+        dm = 0.1  # acceptable deviation in the mean ie we need mean +- deviation_mean/2
+
+
+        mean_lower = tm - dm / 2
+        mean_upper = tm + dm / 2
+
+        mu_s = test_k['class'].mean()  # sample mu
+
+        if mean_lower < mu_s and mu_s <= mean_upper:
+            condition = 'met'
+            # accept this one
+            # which means that we return it
+            ret_dict = {}
+            ret_dict = {'kernel_params': kernel_params,
+                        'kernel_calc': test_k,
+                        'sample_mu': mu_s,
+                        'x1x2y': pd.concat([x1x2, test_k['class']], axis=1)}
+
+    return (ret_dict)
+
+
+
+# get terms for polynomial kernel of degree=2
+def get_polynomial_d2_terms(in_df):
+    retval = {}
+    retval['X1^2'] = in_df.X1 ** 2
+    retval['X2^2'] = in_df.X2 ** 2
+    retval['X1'] = in_df.X1
+    retval['X2'] = in_df.X2
+    retval['X1X2'] = in_df.X1 * in_df.X2
+    return (retval)
+
+
 newfolders = ['saved_models',
               'synthetic_data',
               'synthetic_data_gumbel',
@@ -790,7 +859,7 @@ class DAG_dset_t36(DAG_dset):
         for i in self.ce_dict['cause']:  # list of size 1 only
             xe_noise = np.random.multivariate_normal([0, 0], sig_scale_cause, self.n_to_generate)
             x1x2 = pd.DataFrame(xe_noise, columns=['X1', 'X2'])
-            dsynth = return_d1(self.n_to_generate, x1x2, scale=1)['x1x2y']
+            dsynth = return_d1(n_to_generate=self.n_to_generate, x1x2=x1x2,scale=1)['x1x2y']
             self.variable_values[i] = dsynth[['X1', 'X2']].values
 
             offsets_dict[i] = {}
@@ -906,7 +975,7 @@ class DAG_dset_t36(DAG_dset):
 
 # set some paramters before we generate synthetic data
 
-new_mmod = {
+base_synthetic_partition_spec = {
     'feat_dim': 2,
     'n_unlabelled': 1000,
     'n_labelled': 40,
@@ -914,229 +983,301 @@ new_mmod = {
     'n_test': 1000,
     'num_si': 100,
     'dgen_func': DAG_dset_t36,
-    'experiment': 36
+    'experiment': 36,
+    'experiment_addendum':'',
 }
 
+
+base_synthetic_partition_spec_10000 = {
+    'feat_dim': 2,
+    'n_unlabelled': 10000,
+    'n_labelled': 40,
+    'n_validation': 40,
+    'n_test': 1000,
+    'num_si': 100,
+    'dgen_func': DAG_dset_t36,
+    'experiment': 36_10000,
+    'experiment_addendum':'_10000',
+}
+
+
+
+base_synthetic_partition_spec_100000 = {
+    'feat_dim': 2,
+    'n_unlabelled': 100000,
+    'n_labelled': 40,
+    'n_validation': 40,
+    'n_test': 1000,
+    'num_si': 100,
+    'dgen_func': DAG_dset_t36,
+    'experiment': 36_100000,
+    'experiment_addendum':'_100000',
+}
+
+
 n_to_generate_dict={
-        1:0,    
-        2:0,
-        3:0,
-        4:0,
-        5:0,
-        6:0,
-        7:100,
+        1:100,    
+        2:100,
+        3:100,
+        4:100,
+        5:100,
+        6:100,
+        7:100,        
+        1_10000:100,    
+        2_10000:100,
+        3_10000:100,
+        4_10000:100,
+        5_10000:100,
+        6_10000:100,
+        7_10000:100,
+        1_100000:100,
+        2_100000:100,
+        3_100000:100,
+        4_100000:100,
+        5_100000:100,
+        6_100000:100,
+        7_100000:100,
+        
 }
 
 n_plots_dict={
-        1:0,    
-        2:0,
-        3:0,
-        4:0,
-        5:0,
-        6:0,
-        7:5,
+        1:2,    
+        2:2,
+        3:2,
+        4:2,
+        5:2,
+        6:2,
+        7:2,
+        1_10000:2,  
+        2_10000:2,
+        3_10000:2,
+        4_10000:2,
+        5_10000:2,
+        6_10000:2,
+        7_10000:2,
+        1_100000:2,
+        2_100000:2,
+        3_100000:2,
+        4_100000:2,
+        5_100000:2,
+        6_100000:2,
+        7_100000:2
 }
-# -----------------------------------
-#     Dataset 1: X1->Y
-# -----------------------------------
 
-print('synthesising for X1->Y')
-adjacency_matrix = [[0, 1],
-                    [0, 0]]
-
-for s_i in range(n_to_generate_dict[1]):
-
-
-    dset_kwargs={'adjacency_matrix':adjacency_matrix,
-                     'var_types': ['feature', 'label'],
-                     'feature_dim': new_mmod['feat_dim'],
-                     'd_n':'n{0}_gaussian_mixture_d1'.format(new_mmod['experiment']),
-                     's_i': s_i,
-                     'NSAMP_RATIO':2}
-
-
-    dset_kwargs.update(new_mmod)
-    dset = new_mmod['dgen_func'](**dset_kwargs)
+dset_spec_dict={'base':base_synthetic_partition_spec,
+            'base_10000':base_synthetic_partition_spec_10000,
+            'base_100000':base_synthetic_partition_spec_100000,}
 
 
 
 
-    if plotting_dset and s_i < n_plots_dict[1]:
-        plot_2d_data_w_dag(dset, s_i)
-
-    print('synthesise for: {0}'.format(s_i))
-
-
-
-# -----------------------------------
-#     Dataset 2: Y->X2
-# -----------------------------------
-
-print('synthesising for Y->X2')
-adjacency_matrix = [[0, 1],
-                    [0, 0]]
+#for dsk in ['base','base_10000','base_100000']:
+for dsk in ['base_100000']:
+    
+    dset_spec=dset_spec_dict[dsk]
 
 
-for s_i in range(n_to_generate_dict[2]):
-    dset_kwargs={'adjacency_matrix':adjacency_matrix,
-                 'var_types': ['label', 'feature'],
-                 'feature_dim': new_mmod['feat_dim'],
-                 'd_n':'n{0}_gaussian_mixture_d2'.format(new_mmod['experiment']),
-                 's_i': s_i}
+    # -----------------------------------
+    #     Dataset 1: X1->Y
+    # -----------------------------------
+
+    print('synthesising for X1->Y')
+    adjacency_matrix = [[0, 1],
+                        [0, 0]]
+
+    for s_i in range(n_to_generate_dict[1]):
 
 
-    dset_kwargs.update(new_mmod)
-    dset = new_mmod['dgen_func'](**dset_kwargs)
+        dset_kwargs={'adjacency_matrix':adjacency_matrix,
+                        'var_types': ['feature', 'label'],
+                        'feature_dim': dset_spec['feat_dim'],
+                        'd_n':'n36_gaussian_mixture_d1{}'.format(dset_spec['experiment_addendum']),
+                        's_i': s_i,
+                        'NSAMP_RATIO':2}
+
+
+        dset_kwargs.update(dset_spec)
+        dset = dset_spec['dgen_func'](**dset_kwargs)
 
 
 
 
-
-    if plotting_dset and s_i < n_plots_dict[2]:
-        plot_2d_data_w_dag(dset, s_i)
-
-    print('synthesise for: {0}'.format(s_i))
-
-    print('pauseing here')
-
-# -----------------------------------
-#     Dataset 3: X1->Y->X2
-# -----------------------------------
-
-print('synthesising for X1->Y->X2')
-adjacency_matrix = [[0, 1, 0],
-                    [0, 0, 1],
-                    [0, 0, 0]]
-
-
-for s_i in range(n_to_generate_dict[3]):
-
-    dset_kwargs = {'adjacency_matrix': adjacency_matrix,
-                   'var_types':['feature', 'label', 'feature'],
-                   'feature_dim': new_mmod['feat_dim'],
-                   'd_n': 'n{0}_gaussian_mixture_d3'.format(new_mmod['experiment']),
-                   's_i': s_i,
-                   'NSAMP_RATIO': 2}
-
-    dset_kwargs.update(new_mmod)
-    dset = new_mmod['dgen_func'](**dset_kwargs)
-
-    if plotting_dset and s_i < n_plots_dict[3]:
+        if plotting_dset and s_i < n_plots_dict[1]:
             plot_2d_data_w_dag(dset, s_i)
 
-    print('synthesise for: {0}'.format(s_i))
+        print('synthesise for: {0}'.format(s_i))
 
 
 
-# -----------------------------------
-#     Dataset 4: X1->X2, Y->X2
-# -----------------------------------
+    # -----------------------------------
+    #     Dataset 2: Y->X2
+    # -----------------------------------
 
-print('synthesising for Y->X2,X1->X2')
-adjacency_matrix = [[0, 0, 1],
-                    [0, 0, 1],
-                    [0, 0, 0]]
-
-
-for s_i in range(n_to_generate_dict[4]):
-    dset_kwargs = {'adjacency_matrix': adjacency_matrix,
-                   'var_types':['feature', 'label', 'feature'],
-                   'feature_dim': new_mmod['feat_dim'],
-                   'd_n': 'n{0}_gaussian_mixture_d4'.format(new_mmod['experiment']),
-                   's_i': s_i,
-                   'NSAMP_RATIO': 2}
-
-    dset_kwargs.update(new_mmod)
-    dset = new_mmod['dgen_func'](**dset_kwargs)
-
-    if plotting_dset and s_i < n_plots_dict[4]:
-        plot_2d_data_w_dag(dset, s_i)
-
-    print('synthesise for: {0}'.format(s_i))
+    print('synthesising for Y->X2')
+    adjacency_matrix = [[0, 1],
+                        [0, 0]]
 
 
-# -----------------------------------
-#     Dataset 5: X1->Y->X2, X1->X2
-# -----------------------------------
-
-print('synthesising for X1->Y->X2,X1->X2')
-adjacency_matrix = [[0, 1, 1],
-                    [0, 0, 1],
-                    [0, 0, 0]]
+    for s_i in range(n_to_generate_dict[2]):
+        dset_kwargs={'adjacency_matrix':adjacency_matrix,
+                    'var_types': ['label', 'feature'],
+                    'feature_dim': dset_spec['feat_dim'],
+                    'd_n':'n36_gaussian_mixture_d2{}'.format(dset_spec['experiment_addendum']),
+                    's_i': s_i}
 
 
-for s_i in range(n_to_generate_dict[5]):
-    dset_kwargs = {'adjacency_matrix': adjacency_matrix,
-                   'var_types':['feature', 'label', 'feature'],
-                   'feature_dim': new_mmod['feat_dim'],
-                   'd_n': 'n{0}_gaussian_mixture_d5'.format(new_mmod['experiment']),
-                   's_i': s_i,
-                   'NSAMP_RATIO': 2}
-
-    dset_kwargs.update(new_mmod)
-    dset = new_mmod['dgen_func'](**dset_kwargs)
-
-    if plotting_dset and s_i < n_plots_dict[5]:
-        plot_2d_data_w_dag(dset, s_i)
-
-    print('synthesise for: {0}'.format(s_i))
-
-
-# -----------------------------------
-#     Dataset 6: X1->Y->X3, X1->X3<-X2,
-# -----------------------------------
-
-print('synthesising for Dataset 6: X2->Y->X3, X1->X3<-X2')
-adjacency_matrix = [[0, 0, 1, 1],
-                    [0, 0, 0, 1],
-                    [0, 0, 0, 1],
-                    [0, 0, 0, 0]]
-
-
-for s_i in range(n_to_generate_dict[6]):
-    dset_kwargs = {'adjacency_matrix': adjacency_matrix,
-                   'var_types':['feature', 'feature', 'label', 'feature'],
-                   'feature_dim': new_mmod['feat_dim'],
-                   'd_n': 'n{0}_gaussian_mixture_d6'.format(new_mmod['experiment']),
-                   's_i': s_i,
-                   'NSAMP_RATIO': 2}
-
-    dset_kwargs.update(new_mmod)
-    dset = new_mmod['dgen_func'](**dset_kwargs)
-
-    if plotting_dset and s_i < n_plots_dict[6]:
-        plot_2d_data_w_dag(dset, s_i)
-
-    print('synthesise for: {0}'.format(s_i))
+        dset_kwargs.update(dset_spec)
+        dset = dset_spec['dgen_func'](**dset_kwargs)
 
 
 
-# -----------------------------------
-#     Dataset 7: X1->Y->X3<-X2
-# -----------------------------------
-
-print('synthesising for Dataset 7: X2->Y->X3, X1->X3<-X2')
-adjacency_matrix = [[0, 0, 1, 0], #XC
-                    [0, 0, 0, 1], #XS
-                    [0, 0, 0, 1], #Y
-                    [0, 0, 0, 0]] #XE
 
 
-for s_i in range(n_to_generate_dict[7]):
-    dset_kwargs = {'adjacency_matrix': adjacency_matrix,
-                   'var_types':['feature', 'feature', 'label', 'feature'],
-                   'feature_dim': new_mmod['feat_dim'],
-                   'd_n': 'n{0}_gaussian_mixture_d7'.format(new_mmod['experiment']),
-                   's_i': s_i,
-                   'NSAMP_RATIO': 2}
+        if plotting_dset and s_i < n_plots_dict[2]:
+            plot_2d_data_w_dag(dset, s_i)
 
-    dset_kwargs.update(new_mmod)
-    dset = new_mmod['dgen_func'](**dset_kwargs)
+        print('synthesise for: {0}'.format(s_i))
 
-    if plotting_dset and s_i < n_plots_dict[7]:
-        plot_2d_data_w_dag(dset, s_i)
+        print('pauseing here')
 
-    print('synthesise for: {0}'.format(s_i))
+    # -----------------------------------
+    #     Dataset 3: X1->Y->X2
+    # -----------------------------------
+
+    print('synthesising for X1->Y->X2')
+    adjacency_matrix = [[0, 1, 0],
+                        [0, 0, 1],
+                        [0, 0, 0]]
+
+
+    for s_i in range(n_to_generate_dict[3]):
+
+        dset_kwargs = {'adjacency_matrix': adjacency_matrix,
+                    'var_types':['feature', 'label', 'feature'],
+                    'feature_dim': dset_spec['feat_dim'],
+                    'd_n': 'n36_gaussian_mixture_d3{}'.format(dset_spec['experiment_addendum']),
+                    's_i': s_i,
+                    'NSAMP_RATIO': 2}
+
+        dset_kwargs.update(dset_spec)
+        dset = dset_spec['dgen_func'](**dset_kwargs)
+
+        if plotting_dset and s_i < n_plots_dict[3]:
+                plot_2d_data_w_dag(dset, s_i)
+
+        print('synthesise for: {0}'.format(s_i))
+
+
+
+    # -----------------------------------
+    #     Dataset 4: X1->X2, Y->X2
+    # -----------------------------------
+
+    print('synthesising for Y->X2,X1->X2')
+    adjacency_matrix = [[0, 0, 1],
+                        [0, 0, 1],
+                        [0, 0, 0]]
+
+
+    for s_i in range(n_to_generate_dict[4]):
+        dset_kwargs = {'adjacency_matrix': adjacency_matrix,
+                    'var_types':['feature', 'label', 'feature'],
+                    'feature_dim': dset_spec['feat_dim'],
+                    'd_n': 'n36_gaussian_mixture_d4{}'.format(dset_spec['experiment_addendum']),
+                    's_i': s_i,
+                    'NSAMP_RATIO': 2}
+
+        dset_kwargs.update(dset_spec)
+        dset = dset_spec['dgen_func'](**dset_kwargs)
+
+        if plotting_dset and s_i < n_plots_dict[4]:
+            plot_2d_data_w_dag(dset, s_i)
+
+        print('synthesise for: {0}'.format(s_i))
+
+
+    # -----------------------------------
+    #     Dataset 5: X1->Y->X2, X1->X2
+    # -----------------------------------
+
+    print('synthesising for X1->Y->X2,X1->X2')
+    adjacency_matrix = [[0, 1, 1],
+                        [0, 0, 1],
+                        [0, 0, 0]]
+
+
+    for s_i in range(n_to_generate_dict[5]):
+        dset_kwargs = {'adjacency_matrix': adjacency_matrix,
+                    'var_types':['feature', 'label', 'feature'],
+                    'feature_dim': dset_spec['feat_dim'],
+                    'd_n': 'n36_gaussian_mixture_d5{}'.format(dset_spec['experiment_addendum']),
+                    's_i': s_i,
+                    'NSAMP_RATIO': 2}
+
+        dset_kwargs.update(dset_spec)
+        dset = dset_spec['dgen_func'](**dset_kwargs)
+
+        if plotting_dset and s_i < n_plots_dict[5]:
+            plot_2d_data_w_dag(dset, s_i)
+
+        print('synthesise for: {0}'.format(s_i))
+
+
+    # -----------------------------------
+    #     Dataset 6: X1->Y->X3, X1->X3<-X2,
+    # -----------------------------------
+
+    print('synthesising for Dataset 6: X2->Y->X3, X1->X3<-X2')
+    adjacency_matrix = [[0, 0, 1, 1],
+                        [0, 0, 0, 1],
+                        [0, 0, 0, 1],
+                        [0, 0, 0, 0]]
+
+
+    for s_i in range(n_to_generate_dict[6]):
+        dset_kwargs = {'adjacency_matrix': adjacency_matrix,
+                    'var_types':['feature', 'feature', 'label', 'feature'],
+                    'feature_dim': dset_spec['feat_dim'],
+                    'd_n': 'n36_gaussian_mixture_d6{}'.format(dset_spec['experiment_addendum']),
+                    's_i': s_i,
+                    'NSAMP_RATIO': 2}
+
+        dset_kwargs.update(dset_spec)
+        dset = dset_spec['dgen_func'](**dset_kwargs)
+
+        if plotting_dset and s_i < n_plots_dict[6]:
+            plot_2d_data_w_dag(dset, s_i)
+
+        print('synthesise for: {0}'.format(s_i))
+
+
+
+    # -----------------------------------
+    #     Dataset 7: X1->Y->X3<-X2
+    # -----------------------------------
+
+    print('synthesising for Dataset 7: X2->Y->X3, X1->X3<-X2')
+    adjacency_matrix = [[0, 0, 1, 0], #XC
+                        [0, 0, 0, 1], #XS
+                        [0, 0, 0, 1], #Y
+                        [0, 0, 0, 0]] #XE
+
+
+    for s_i in range(n_to_generate_dict[7]):
+        dset_kwargs = {'adjacency_matrix': adjacency_matrix,
+                    'var_types':['feature', 'feature', 'label', 'feature'],
+                    'feature_dim': dset_spec['feat_dim'],
+                    'd_n': 'n36_gaussian_mixture_d7{}'.format(dset_spec['experiment_addendum']),
+                    's_i': s_i,
+                    'NSAMP_RATIO': 2}
+
+        dset_kwargs.update(dset_spec)
+        dset = dset_spec['dgen_func'](**dset_kwargs)
+
+        if plotting_dset and s_i < n_plots_dict[7]:
+            plot_2d_data_w_dag(dset, s_i)
+
+        print('synthesise for: {0}'.format(s_i))
 
 
 

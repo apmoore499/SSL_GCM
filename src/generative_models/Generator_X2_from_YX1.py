@@ -47,6 +47,9 @@ class Generator_X2_from_YX1(pl.LightningModule):
 
         self.input_dim=input_dim
         self.output_dim=output_dim
+        
+        self.automatic_optimization=False
+        
 
     def forward(self, z):
         # in lightning, forward defines the prediction/inference actions
@@ -59,8 +62,20 @@ class Generator_X2_from_YX1(pl.LightningModule):
       #                                             "hp/metric_2_trans_mmd": 0})
 
 
+    def training_step(self, batch, batch_idx):
+        
+        #labelled=batch['loader_labelled']
+        #unlabelled=batch['loader_unlabelled']
 
-    def training_step(self, batch, batch_idx,optimizer_idx):
+        #sigma_list = [self.hparams.median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]]
+
+        
+        opt_lab, opt_ulab=self.optimizers()
+        opt_lab.zero_grad()
+        opt_ulab.zero_grad()
+
+
+    #def training_step(self, batch, batch_idx,optimizer_idx):
         
         #set_trace()
 
@@ -70,170 +85,180 @@ class Generator_X2_from_YX1(pl.LightningModule):
         sigma_list_target_x =  [self.hparams.median_pwd_tx * x for x in [0.125, 0.25, 0.5, 1, 2]]
         sigma_list_conditional_x = [self.hparams.median_pwd_cx * x for x in [0.125, 0.25, 0.5, 1, 2]]
     
-        if optimizer_idx==0: #labelled loader
-            target_x,conditional_x,y=labelled
+       #if optimizer_idx==0: #labelled loader
+        target_x,conditional_x,y=labelled
+        
+        y=y.float()
+        #sample noise
+        z=torch.randn_like(target_x)
+
+        z=z.reshape((-1,self.hparams['output_dim']))
+        target_x = target_x.reshape((-1, self.hparams['output_dim']))
+        #conditional_x = conditional_x.reshape((-1, 1))
+        #y=torch.nn.functional.one_hot(y)
+        
+        #cat input...
+        gen_input=torch.cat((z,conditional_x,y),1).float()
+        #prediction
+        x_hat=self.gen(gen_input)
+
+
+        if self.hparams['dict_for_mmd'] is not None:
+            #derive new combined MMD loss
+            vlist=self.hparams['dict_for_mmd']['vlist']
+
+            input_features = vlist[:-1] #get input features
+            label_var = vlist[-1] #get label variable
+
+
+            feature_dict={}
+
+            label_dict={}
+            label_dict[label_var] = {}
+            label_dict[label_var]['est']=y
+            label_dict[label_var]['ground_truth'] = y
+
+            for in_f in input_features:
+                dloader_idx=self.hparams['dict_for_mmd'][in_f]['dataloader_idx']
+                sigma_list=self.hparams['dict_for_mmd'][in_f]['sigma_list']
+                feature_dict[in_f]={}
+                feature_dict[in_f]['est']=conditional_x[:,dloader_idx]
+                feature_dict[in_f]['ground_truth'] =conditional_x[:,dloader_idx]
+                feature_dict[in_f]['sigma_list'] = sigma_list
+
+            #self.hparams['dict_for_mmd'][in_f]=
+            target_variable=self.hparams['dict_for_mmd']['target_variable']
+            sigma_list = self.hparams['dict_for_mmd'][in_f]['sigma_list']
+            feature_dict[target_variable]={}
+            feature_dict[target_variable]['est'] = x_hat
+            feature_dict[target_variable]['ground_truth'] = target_x
+            feature_dict[target_variable]['sigma_list'] = sigma_list
+                    #get labels
+
+            loss=MMD_multiple(feature_dict=feature_dict, label_dict=label_dict)
+
+
+            #loss=mix_rbf_mmd2_joint_regress(x_hat,
+            #                                target_x,
+            #                                conditional_x,
+            #                                conditional_x,
+            #                                y,
+            #                                y,
+            #                                sigma_list=sigma_list_target_x,
+            #                                sigma_list1=sigma_list_conditional_x)
+            # get batch size for balancing contrib of label / unlabel
+            cbatch_size = float(z.shape[0])
+            ratio_cbatch = cbatch_size / self.hparams.n_lab
+            loss*=ratio_cbatch
+
+            self.log('labelled_mmd_loss', loss)
+            #return(loss)
+
+        else:
+            loss=mix_rbf_mmd2_joint_regress(x_hat,
+                                            target_x,
+                                            conditional_x,
+                                            conditional_x,
+                                            y,
+                                            y,
+                                            sigma_list=sigma_list_target_x,
+                                            sigma_list1=sigma_list_conditional_x)
+            # get batch size for balancing contrib of label / unlabel
+            cbatch_size = float(z.shape[0])
+            ratio_cbatch = cbatch_size / self.hparams.n_lab
+            loss *= ratio_cbatch
+
+            self.log('labelled_mmd_loss', loss)
+            #return (loss)
             
-            y=y.float()
-            #sample noise
-            z=torch.randn_like(target_x)
+        loss.backward()
+        
+        opt_lab.step()
 
-            z=z.reshape((-1,self.hparams['output_dim']))
-            target_x = target_x.reshape((-1, self.hparams['output_dim']))
-            #conditional_x = conditional_x.reshape((-1, 1))
-            #y=torch.nn.functional.one_hot(y)
+        #if optimizer_idx==1:
             
-            #cat input...
-            gen_input=torch.cat((z,conditional_x,y),1).float()
-            #prediction
-            x_hat=self.gen(gen_input)
+        target_x,conditional_x,y=unlabelled
+        
+        z=torch.randn_like(target_x)
+        z = z.reshape((-1, self.hparams['output_dim']))
+        target_x = target_x.reshape((-1, self.hparams['output_dim']))
+        #conditional_x = conditional_x.reshape((-1, ))
 
+        #cat input...
+        gen_input=torch.cat((z,conditional_x,y),1).float()
+        #prediction
+        x_hat=self.gen(gen_input).float()
 
-            if self.hparams['dict_for_mmd'] is not None:
-                #derive new combined MMD loss
-                vlist=self.hparams['dict_for_mmd']['vlist']
+        if self.hparams['dict_for_mmd'] is not None:
+            # derive new combined MMD loss
 
-                input_features = vlist[:-1] #get input features
-                label_var = vlist[-1] #get label variable
+            # derive new combined MMD loss
+            vlist = self.hparams['dict_for_mmd']['vlist']
 
+            input_features = vlist[:-1]  # get input features
+            label_var = vlist[-1]  # get label variable
 
-                feature_dict={}
+            feature_dict = {}
 
-                label_dict={}
-                label_dict[label_var] = {}
-                label_dict[label_var]['est']=y
-                label_dict[label_var]['ground_truth'] = y
+            label_dict = {}
+            label_dict[label_var] = {}
+            label_dict[label_var]['est'] = y
+            label_dict[label_var]['ground_truth'] = y
 
-                for in_f in input_features:
-                    dloader_idx=self.hparams['dict_for_mmd'][in_f]['dataloader_idx']
-                    sigma_list=self.hparams['dict_for_mmd'][in_f]['sigma_list']
-                    feature_dict[in_f]={}
-                    feature_dict[in_f]['est']=conditional_x[:,dloader_idx]
-                    feature_dict[in_f]['ground_truth'] =conditional_x[:,dloader_idx]
-                    feature_dict[in_f]['sigma_list'] = sigma_list
-
-                #self.hparams['dict_for_mmd'][in_f]=
-                target_variable=self.hparams['dict_for_mmd']['target_variable']
+            for in_f in input_features:
+                dloader_idx = self.hparams['dict_for_mmd'][in_f]['dataloader_idx']
                 sigma_list = self.hparams['dict_for_mmd'][in_f]['sigma_list']
-                feature_dict[target_variable]={}
-                feature_dict[target_variable]['est'] = x_hat
-                feature_dict[target_variable]['ground_truth'] = target_x
-                feature_dict[target_variable]['sigma_list'] = sigma_list
-                        #get labels
+                feature_dict[in_f] = {}
+                feature_dict[in_f]['est'] = conditional_x[:, dloader_idx]
+                feature_dict[in_f]['ground_truth'] = conditional_x[:, dloader_idx]
+                feature_dict[in_f]['sigma_list'] = sigma_list
 
-                loss=MMD_multiple(feature_dict=feature_dict, label_dict=label_dict)
+            # self.hparams['dict_for_mmd'][in_f]=
+            target_variable = self.hparams['dict_for_mmd']['target_variable']
+            sigma_list = self.hparams['dict_for_mmd'][in_f]['sigma_list']
+            feature_dict[target_variable] = {}
+            feature_dict[target_variable]['est'] = x_hat
+            feature_dict[target_variable]['ground_truth'] = target_x
+            feature_dict[target_variable]['sigma_list'] = sigma_list
+            # get labels
 
+            loss = MMD_multiple(feature_dict=feature_dict)  # , label_dict=label_dict)
 
-                #loss=mix_rbf_mmd2_joint_regress(x_hat,
-                #                                target_x,
-                #                                conditional_x,
-                #                                conditional_x,
-                #                                y,
-                #                                y,
-                #                                sigma_list=sigma_list_target_x,
-                #                                sigma_list1=sigma_list_conditional_x)
-                # get batch size for balancing contrib of label / unlabel
-                cbatch_size = float(z.shape[0])
-                ratio_cbatch = cbatch_size / self.hparams.n_lab
-                loss*=ratio_cbatch
+            # get batch size for balancing contrib of label / unlabel
+            cbatch_size = float(z.shape[0])
+            ratio_cbatch = cbatch_size / self.hparams.n_ulab
+            loss *= ratio_cbatch
 
-                self.log('labelled_mmd_loss', loss)
-                return(loss)
+            self.log('unlabelled_mmd_loss', loss)
+            #return (loss)
+        else:
 
-            else:
-                loss=mix_rbf_mmd2_joint_regress(x_hat,
-                                                target_x,
-                                                conditional_x,
-                                                conditional_x,
-                                                y,
-                                                y,
-                                                sigma_list=sigma_list_target_x,
-                                                sigma_list1=sigma_list_conditional_x)
-                # get batch size for balancing contrib of label / unlabel
-                cbatch_size = float(z.shape[0])
-                ratio_cbatch = cbatch_size / self.hparams.n_lab
-                loss *= ratio_cbatch
+            loss=mix_rbf_mmd2_joint_regress(x_hat,
+                                            target_x,
+                                            conditional_x,
+                                            conditional_x,
+                                            sigma_list=sigma_list_target_x,
+                                            sigma_list1=sigma_list_conditional_x)
 
-                self.log('labelled_mmd_loss', loss)
-                return (loss)
+            # get batch size for balancing contrib of label / unlabel
+            cbatch_size = float(z.shape[0])
+            ratio_cbatch = cbatch_size / self.hparams.n_ulab
+            loss*=ratio_cbatch
 
-        if optimizer_idx==1:
-            
-            target_x,conditional_x,y=unlabelled
-            
-            z=torch.randn_like(target_x)
-            z = z.reshape((-1, self.hparams['output_dim']))
-            target_x = target_x.reshape((-1, self.hparams['output_dim']))
-            #conditional_x = conditional_x.reshape((-1, ))
+            self.log('unlabelled_mmd_loss', loss)
+            #return(loss)
+        
+                    
+        loss.backward()
+        
+        opt_ulab.step()
 
-            #cat input...
-            gen_input=torch.cat((z,conditional_x,y),1).float()
-            #prediction
-            x_hat=self.gen(gen_input).float()
-
-            if self.hparams['dict_for_mmd'] is not None:
-                # derive new combined MMD loss
-
-                # derive new combined MMD loss
-                vlist = self.hparams['dict_for_mmd']['vlist']
-
-                input_features = vlist[:-1]  # get input features
-                label_var = vlist[-1]  # get label variable
-
-                feature_dict = {}
-
-                label_dict = {}
-                label_dict[label_var] = {}
-                label_dict[label_var]['est'] = y
-                label_dict[label_var]['ground_truth'] = y
-
-                for in_f in input_features:
-                    dloader_idx = self.hparams['dict_for_mmd'][in_f]['dataloader_idx']
-                    sigma_list = self.hparams['dict_for_mmd'][in_f]['sigma_list']
-                    feature_dict[in_f] = {}
-                    feature_dict[in_f]['est'] = conditional_x[:, dloader_idx]
-                    feature_dict[in_f]['ground_truth'] = conditional_x[:, dloader_idx]
-                    feature_dict[in_f]['sigma_list'] = sigma_list
-
-                # self.hparams['dict_for_mmd'][in_f]=
-                target_variable = self.hparams['dict_for_mmd']['target_variable']
-                sigma_list = self.hparams['dict_for_mmd'][in_f]['sigma_list']
-                feature_dict[target_variable] = {}
-                feature_dict[target_variable]['est'] = x_hat
-                feature_dict[target_variable]['ground_truth'] = target_x
-                feature_dict[target_variable]['sigma_list'] = sigma_list
-                # get labels
-
-                loss = MMD_multiple(feature_dict=feature_dict)  # , label_dict=label_dict)
-
-                # get batch size for balancing contrib of label / unlabel
-                cbatch_size = float(z.shape[0])
-                ratio_cbatch = cbatch_size / self.hparams.n_ulab
-                loss *= ratio_cbatch
-
-                self.log('unlabelled_mmd_loss', loss)
-                return (loss)
-            else:
-
-                loss=mix_rbf_mmd2_joint_regress(x_hat,
-                                                target_x,
-                                                conditional_x,
-                                                conditional_x,
-                                                sigma_list=sigma_list_target_x,
-                                                sigma_list1=sigma_list_conditional_x)
-
-                # get batch size for balancing contrib of label / unlabel
-                cbatch_size = float(z.shape[0])
-                ratio_cbatch = cbatch_size / self.hparams.n_ulab
-                loss*=ratio_cbatch
-
-                self.log('unlabelled_mmd_loss', loss)
-                return(loss)
 
 
     def configure_optimizers(self):
-        self.g_optim_one = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
-        self.g_optim_two = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
-        return self.g_optim_one, self.g_optim_two
+        self.opt_lab = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
+        self.opt_ulab = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
+        return self.opt_lab, self.opt_ulab
 
     def validation_step(self, batch, batch_idx):
         

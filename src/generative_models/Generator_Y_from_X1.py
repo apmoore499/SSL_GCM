@@ -1,6 +1,20 @@
 
 import pytorch_lightning as pl
 
+
+import sys
+
+import sys
+import os
+
+# Add the project directory to sys.path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(project_root)
+
+
+#sys.path.append('/media/krillman/240GB_DATA/codes2/SSL_GCM/src/generative_models')
+
+
 from benchmarks_cgan import *
 n_classes=2
 class Generator_Y_from_X1(pl.LightningModule):
@@ -38,7 +52,7 @@ class Generator_Y_from_X1(pl.LightningModule):
 
     def forward(self, z):
         # in lightning, forward defines the prediction/inference actions
-        generated_x = self.classifier(z)
+        generated_x = self.classifier(z.to(self.device))
         return generated_x
     
     # Using custom or multiple metrics (default_hp_metric=False)

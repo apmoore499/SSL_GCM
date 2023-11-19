@@ -36,62 +36,85 @@ class Generator_X2_from_Y(pl.LightningModule):
                                       output_dim=output_dim)
             
         self.vmmd_losses=[]
+        
+        
+        
+        self.automatic_optimization=False
 
     def forward(self, z):
         # in lightning, forward defines the prediction/inference actions
         generated_x = self.gen(z)
         return generated_x
 
-    def training_step(self, batch, batch_idx,optimizer_idx):
-        
 
+
+    def training_step(self, batch, batch_idx):
+        
         labelled=batch['loader_labelled']
         unlabelled=batch['loader_unlabelled']
 
         sigma_list = [self.hparams.median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]]
 
-        if optimizer_idx==0: #labelled loader
-            x,y=labelled
-            #sample noise
-            x=x.reshape((-1,self.hparams['output_dim']))
-            z=torch.randn_like(x)
-            
-            #y=torch.nn.functional.one_hot(y)
-            
-            #cat input...
-            gen_input=torch.cat((z,y),1).float()
-            #prediction
-            x_hat=self.gen(gen_input)
-            y=y.float()
-            loss=mix_rbf_mmd2_joint(x_hat,x,y,y,sigma_list=sigma_list)
-            # get batch size
-            cbatch_size = float(z.shape[0])
-            ratio_cbatch = cbatch_size / self.hparams.n_lab
-            loss*=ratio_cbatch
-            self.log('labelled_mmd_loss', loss)
-            return(loss)
+        
+        opt_lab, opt_ulab=self.optimizers()
+        opt_lab.zero_grad()
+        opt_ulab.zero_grad()
 
-        if optimizer_idx==1:
-            x,y=unlabelled
-            x=x.reshape((-1,self.hparams['output_dim']))
-            z=torch.randn_like(x)
-            #y=torch.nn.functional.onehot(y)
-            gen_input=torch.cat((z,y),1).float()
-            #prediction
-            x_hat=self.gen(gen_input)
-            loss=mix_rbf_mmd2(x_hat,x,sigma_list=sigma_list)
-            # get batch size
-            cbatch_size = float(z.shape[0])
-            ratio_cbatch = cbatch_size / self.hparams.n_ulab
-            loss*=ratio_cbatch
-            self.log('unlabelled_mmd_loss', loss)
-            return(loss)
+        #if optimizer_idx==0: #labelled loader
+        x,y=labelled
+        #sample noise
+        x=x.reshape((-1,self.hparams['output_dim']))
+        z=torch.randn_like(x)
+        
+        #y=torch.nn.functional.one_hot(y)
+        
+        #cat input...
+        gen_input=torch.cat((z,y),1).float()
+        #prediction
+        x_hat=self.gen(gen_input)
+        y=y.float()
+        loss=mix_rbf_mmd2_joint(x_hat,x,y,y,sigma_list=sigma_list)
+        # get batch size
+        cbatch_size = float(z.shape[0])
+        ratio_cbatch = cbatch_size / self.hparams.n_lab
+        loss*=ratio_cbatch
+        
+        loss.backward()
+        
+        opt_lab.step()
+        self.log('labelled_mmd_loss', loss)
+            #return(loss)
+            
+        
+
+        #if optimizer_idx==1:
+        x,y=unlabelled
+        x=x.reshape((-1,self.hparams['output_dim']))
+        z=torch.randn_like(x)
+        #y=torch.nn.functional.onehot(y)
+        gen_input=torch.cat((z,y),1).float()
+        #prediction
+        x_hat=self.gen(gen_input)
+        loss=mix_rbf_mmd2(x_hat,x,sigma_list=sigma_list)
+        # get batch size
+        cbatch_size = float(z.shape[0])
+        ratio_cbatch = cbatch_size / self.hparams.n_ulab
+        loss*=ratio_cbatch
+        
+        loss.backward()
+        
+        opt_ulab.step()
+        
+        self.log('unlabelled_mmd_loss', loss)
+        
+        
+        #return(loss)
 
 
     def configure_optimizers(self):
-        self.g_optim_one = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
-        self.g_optim_two = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
-        return self.g_optim_one, self.g_optim_two
+        self.optim_labelled = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
+        self.optim_unlabelled = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
+        return self.optim_labelled, self.optim_unlabelled
 
     def validation_step(self, batch, batch_idx):
 

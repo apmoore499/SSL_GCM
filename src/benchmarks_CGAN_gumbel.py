@@ -1110,7 +1110,8 @@ if __name__ == '__main__':
                 candidate_models=glob.glob(model_to_search_for)
                 dsc_generators[k]=dsc_generators[k].load_from_checkpoint(checkpoint_path=candidate_models[0])
 
-        n_samples=50000
+        n_samples=int(30000*min(dspec.n_unlabelled/1000,5)) #try to set this to deal wtih very large unalbeleld size...
+
 
         synthetic_samples_dict=generate_samples_to_dict_tripartite(dsc,has_gpu,dsc_generators,device_string,n_samples,gumbel=True,tau=mintemp)
         joined_synthetic_data=samples_dict_to_df(dsc,synthetic_samples_dict,balance_labels=True,exact=False)

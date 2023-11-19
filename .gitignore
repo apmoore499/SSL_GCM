@@ -1,0 +1,5 @@
+.aider*
+data*
+.vscode*
+lightning_logs*
+*__pycache__*

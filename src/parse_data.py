@@ -1,7 +1,7 @@
 #pd.DataFrame(s_data,dtype='float').drop(columns=['plcg','pjnk','P38','PKC']).to_csv('s_data_plcg_amean.csv',index=False)
 
 
-from cdt.data import load_dataset
+from cdt.data import load_dataset #external library
 import numpy as np
 import pandas as pd
 import igraph
