@@ -9,22 +9,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional
-
 from benchmarks_utils import *
-
 import sys
-import argparse
-from typing import Optional
 import time
-
-
 import argparse
-
-import torch
-import torch.distributions as D
-from torch.utils.data import DataLoader
-from typing import Optional
 has_gpu=False
+import sqlite3
+import os
+import pandas as pd
+import json
+
+SQL_DB_NAME='ALL_RESULTS.db'
+
 
 class PartialSupervisedClassifier(pl.LightningModule):
     def __init__(self, lr, d_n, s_i, input_dim,dn_log,output_dim,tot_bsize=None,best_value=None):
@@ -162,11 +158,13 @@ if __name__ == '__main__':
     parser.add_argument('--metric', help='which metric to select best model. bce or acc', type=str, default='val_acc')
     parser.add_argument('--use_tuned_hpms', help='use tuned hyper params or not', type=str, default='False')
     parser.add_argument('--min_epochs', help='min epochs to train for', type=int, default=10)
+    parser.add_argument('--keep_SQL_records', help='keeping to SQL records', type=str, default='True')
 
     args = parser.parse_args()
 
     args.use_single_si = str_to_bool(args.use_single_si)
     args.use_tuned_hpms = str_to_bool(args.use_tuned_hpms)
+    args.keep_SQL_records = str_to_bool(args.keep_SQL_records)
 
     # get dataspec, read in as dictionary
     # this is the master dictionary database for parsing different datasets / misc modifications etc
@@ -188,8 +186,7 @@ if __name__ == '__main__':
         # args.optimal_si_list=[args.optimal_si_list[args.s_i]]
         args.optimal_si_list = [args.s_i]
 
-    #gpu_kwargs = get_gpu_kwargs(args)
-    gpu_kwargs = {}
+    gpu_kwargs = get_gpu_kwargs(args)
 
     result_dict = {}
     results_list = []
@@ -206,15 +203,15 @@ if __name__ == '__main__':
         dspec['input_dim'] = orig_data['label_features'].shape[1]  # columns
 
         # get the data for validation
-        val_features = torch.tensor(ssld.data_validation[0][0],device=torch.device('cuda'))
-        val_lab = torch.tensor(ssld.data_validation[0][1],device=torch.device('cuda'))
+        val_features = ssld.data_validation[0][0]
+        val_lab = ssld.data_validation[0][1]
 
         PSUP_default_args = {'lr': args.lr}
 
         model_init_args = {
             'd_n': args.d_n,
             's_i': si_iter,
-            'dn_log': dspec.dn_log,
+            'dn_log': int(dspec.dn_log),
             'input_dim': dspec['input_dim'],
             'output_dim': 2,
 
@@ -234,6 +231,27 @@ if __name__ == '__main__':
 
         optimal_model = None
         optimal_trainer = None
+
+        # check if table exist in SQL or not
+
+        sql_device = get_sql_working_device()
+
+        # replace 'CLASSIFIER' string
+        if 'CGAN' in model_name:
+            sql_model_name = model_name
+        else:
+            if '_CLASSIFIER' in model_name:
+                sql_model_name = model_name.replace('_CLASSIFIER', '')
+
+        cmd_str = f'''SELECT * FROM {sql_model_name} WHERE model_name = '{sql_model_name}' AND d_n = '{args.d_n}' AND device = '{sql_device}' AND s_i = {model_init_args['s_i']} AND batch_size = {args.tot_bsize} AND lr = {args.lr} '''
+        conn = sqlite3.connect(SQL_DB_NAME, timeout=60.0)
+        candidate_models = pd.read_sql_query(cmd_str, conn)
+        if candidate_models.shape[0] > 0 and args.keep_SQL_records:
+            print('already exists for this one: exiting')
+            sys.exit()
+        else:
+            print('not already exist for this one: proceed')
+            conn.close()
 
         # START TIME
         st = time.time()
@@ -298,18 +316,15 @@ if __name__ == '__main__':
 
         # SAVE THE TRAINER
         optimal_trainer.save_checkpoint(model_save_fn)
-        print('optimal model saved here')
-        print(model_save_fn)
-
-        # quick dirty prediction on the data
 
         print('unlabel prediction acc: ')
-        print((optimal_model.predict(orig_data['unlabel_features'].to(optimal_model.device)) == orig_data['unlabel_y'].argmax(1).numpy()).mean())
+        print((optimal_model.predict(orig_data['unlabel_features']) == orig_data['unlabel_y'].argmax(1).numpy()).mean())
 
         # EVALUATE ON DATA
         evaluate_on_test_and_unlabel(dspec, args, si_iter, current_model, optimal_model, orig_data, optimal_trainer)
+        sql_res = return_test_ulab_for_sql(dspec, args, si_iter, current_model, optimal_model, orig_data,
+                                           optimal_trainer)
 
-        print('pausing here')
         print('plotting decision boundaries (plotly)')
 
         # PLOT HARD DECISION BOUNDARY
@@ -321,4 +336,3 @@ if __name__ == '__main__':
         # DELETE OPTIMALS SO CAN RESTART IF DOING MULTIPLE S_I
         del optimal_trainer
         del optimal_model
-

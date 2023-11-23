@@ -1,0 +1,23 @@
+what else needs to be done
+
+
+
+- plot the synthetic datasets []
+		- gumbel []	
+		- disjoint []
+
+
+- pick n workers for optimal performance: [x] 4 seems to work best
+
+n_workers=8, time taken: 1.8985329866409302 minutes
+n_workers=4, time taken: 1.4894595225652059 minutes [x] <- this one is the best
+n_workers=16, too slow aborted
+n_workers=2, time taken: 1.7493440588315328 minutes
+n_workers=1, too slow aborted
+n_workers=0, too slow aborted
+
+
+
+
+so if we can get 1.48 minute for every run, that is 148 minutes which is less than 3 hours. for 1 dataset. over all datasets. slow. 
+

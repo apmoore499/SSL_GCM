@@ -86,7 +86,7 @@ class CGANSupervisedClassifier(pl.LightningModule):
         self.log("val_acc", v_acc)
         self.log("d_n", self.hparams['dn_log'])
         self.log("s_i", s_i)
-        self.val_accs.append(v_acc.item())
+        self.val_accs.append(v_acc)
 
 
     def predict_test(self,features,label):
@@ -146,14 +146,14 @@ class SSLDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         if has_gpu:
-            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True, pin_memory=True)
+            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True, pin_memory=True,num_workers=8)
         else:
             return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
 
         if has_gpu:
-            return DataLoader(self.data_validation, batch_size=self.nval, pin_memory=True)
+            return DataLoader(self.data_validation, batch_size=self.nval, pin_memory=True,num_workers=8)
         else:
             return DataLoader(self.data_validation, batch_size=self.nval)
 
@@ -328,6 +328,10 @@ if __name__ == '__main__':
         synthetic_data.columns=rep_cols
         input_dim = orig_data['label_features'].shape[1]  # columns in features
 
+
+
+
+
         results_list = []
         for t in range(args.n_trials):
             cgan_classifier = CGANSupervisedClassifier(lr=args.lr, d_n=args.d_n, s_i=s_i,
@@ -340,16 +344,20 @@ if __name__ == '__main__':
             tb_logger = pl_loggers.TensorBoardLogger("lightning_logs/",
                                                     name=combined_name(model_name, args.d_n, s_i),
                                                     version=0)
+            #import pytorch_lightning
+            #profiler_simple_first=pytorch_lightning.profilers.SimpleProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/profiler',filename='simple_profile_results.txt')
+            #profiler_simple_second=pytorch_lightning.profilers.SimpleProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/profiler',filename='simple_profile_results_second.txt')
 
             trainer = pl.Trainer(log_every_n_steps=1,
                                 check_val_every_n_epoch=1,
                                 max_epochs=args.n_iterations,
                                 callbacks=[max_pf_checkpoint_callback,estop_cb],
-                                #reload_dataloaders_every_epoch=True,
+                                reload_dataloaders_every_n_epochs=1,
                                 deterministic=True,
                                 logger=tb_logger,
-                                #progress_bar_refresh_rate=1,
-                                #weights_summary=None,
+                                accelerator='gpu',
+                                devices=1,
+                                #profiler=profiler_simple_first,
                                 **gpu_kwargs)
 
 
@@ -388,6 +396,7 @@ if __name__ == '__main__':
             ssld_orig = CGANSupervisedDataModule(orig_data,
                                                 synth_dd,
                                                 inclusions='orig_only',
+                                                n_to_sample_for_orig='unlabelled', #unlabelled, labelled, baseline. baseline=2000 as per original synthetic data. unlabelled=as many as in this unlabelled data. so like 100,000 if so. labelled=just labelled cases ~ 40 cases.
                                                 batch_size=args.tot_bsize) #actually just do tot_bsize cos same as orig, otherwise too slow 23_11_2023 AM
                                                 
                                                 #batch_size=32) #32 to keep same as orig for small datasets, 23_11_2023 AM
@@ -396,8 +405,12 @@ if __name__ == '__main__':
             # before we start training, we have to delete old saved models
             clear_saved_models(model_name, save_dir=dspec.save_folder, s_i=s_i)
 
+            from IPython.core.debugger import set_trace
+
 
             trainer.fit(cgan_classifier, ssld_orig)  # train here
+
+            #set_trace()
 
             #load optimal model....
             cgan_fn = '{0}/saved_models/{2}-s_i={1}-*.ckpt'.format(dspec.save_folder, s_i,model_name)
@@ -413,16 +426,15 @@ if __name__ == '__main__':
             max_pf_checkpoint_callback = return_chkpt_max_val_acc(model_name, dspec.save_folder)  # returns max checkpoint
             estop_cb = return_estop_val_acc(args.estop_patience)
 
+
             trainer = pl.Trainer(log_every_n_steps=1,
                                 check_val_every_n_epoch=1,
                                 max_epochs=args.n_iterations,
                                 callbacks=[max_pf_checkpoint_callback,estop_cb],
-                                #reload_dataloaders_every_epoch=True,
                                 reload_dataloaders_every_n_epochs=1,
                                 logger=tb_logger,
                                 deterministic=True,
-                                #progress_bar_refresh_rate=1,
-                                #weights_summary=None,
+                                #profiler=profiler_simple_second,
                                 **gpu_kwargs)
 
             ssld_synth = CGANSupervisedDataModule(orig_data,
@@ -446,16 +458,21 @@ if __name__ == '__main__':
             # store optimal model
 
             # get the data for validation
-            val_features = ssld_orig.data_validation[0][0]
-            val_lab = ssld_orig.data_validation[0][1].flatten()
+            #val_features = ssld_orig.data_validation[0][0]
+            val_features = torch.tensor(ssld_orig.data_validation[0][0],device='cuda')
+            #val_lab = ssld_orig.data_validation[0][1].flatten()
+
+            val_lab = torch.tensor(ssld_orig.data_validation[0][1].flatten(),device='cuda')
+            
 
             try:
                 print('pausing here')
-                optimal_pred = optimal_model.forward(val_features.cuda())
-                optimal_acc = get_accuracy(optimal_pred, val_lab.cuda())
-
-                current_pred = current_model.forward(val_features.cuda())
-                current_acc = get_accuracy(current_pred, val_lab.cuda())
+                with torch.no_grad():
+                    optimal_pred = cgan_classifier.forward(val_features)#.cuda())
+                optimal_acc = get_accuracy(optimal_pred, val_lab)#.cuda())
+                with torch.no_grad():
+                    current_pred = current_model.forward(val_features)#.cuda())
+                current_acc = get_accuracy(current_pred, val_lab)
 
                 if current_acc > optimal_acc:
                     optimal_model = copy.deepcopy(current_model)
@@ -492,9 +509,19 @@ if __name__ == '__main__':
                                                                                     10,
                                                                                     max(optimal_trainer.model.val_accs))
         optimal_trainer.save_checkpoint(filepath)
+        
+        
+        test_features=torch.tensor(orig_data['test_features'],device='cuda')
+        test_y=torch.tensor(orig_data['test_y'].flatten(),device='cuda')
+        ulab_features=torch.tensor(orig_data['unlabel_features'],device='cuda')
+        ulab_y=torch.tensor(orig_data['unlabel_y'].flatten(),device='cuda')
 
-        test_acc = optimal_model.predict_test(orig_data['test_features'].cuda(), orig_data['test_y'].flatten().cuda())
-        unlabel_acc = optimal_model.predict_test(orig_data['unlabel_features'].cuda(), orig_data['unlabel_y'].flatten().cuda())
+        with torch.no_grad():
+            test_acc = optimal_model.predict_test(features=test_features,label=test_y)
+            unlabel_acc = optimal_model.predict_test(features=ulab_features,label=ulab_y)
+
+        #test_acc = optimal_model.predict_test(orig_data['test_features'].cuda(), orig_data['test_y'].flatten().cuda())
+        #unlabel_acc = optimal_model.predict_test(orig_data['unlabel_features'].cuda(), orig_data['unlabel_y'].flatten().cuda())
 
         test_acc = np.array([test_acc.cpu().detach().item()])
         filepath = "{0}/saved_models/{1}-s_i={2}_test_acc.out".format(SAVE_FOLDER, model_name,

@@ -310,14 +310,22 @@ def get_default_trainer(args, tb_logger, callbacks,deterministic_flag=False,min_
                          max_epochs=args.n_iterations,
                          callbacks=callbacks,
                          deterministic=deterministic_flag,
-                         reload_dataloaders_every_epoch=True,
+                         #reload_dataloaders_every_epoch=True,
+                         reload_dataloaders_every_n_epochs=1,
                          logger=tb_logger,
                          min_epochs=min_epochs,
-                         enable_progress_bar=False,#progress_bar_refresh_rate=1,
-                         weights_summary=None,
+                         accelerator='gpu',
+                         devices=1,
+                         enable_progress_bar=True,#progress_bar_refresh_rate=1,
+                         #weights_summary=None,
                          **gpu_kwargs)
     return (trainer)
 
+                                #deterministic=True,
+                                #logger=tb_logger,
+
+                                #profiler=profiler_simple_first,
+                                #**gpu_kwargs)
 
 #-----------------------------------
 #     LOADING OPTIMAL MODEL
@@ -329,7 +337,7 @@ def load_optimal_model(dspec, current_model):
         current_model.hparams['s_i'])
     candidate_models = glob.glob(model_to_search_for)
     #assert(len(candidate_models)==1)
-    current_model = current_model.load_from_checkpoint(checkpoint_path=candidate_models[0])
+    current_model = type(current_model).load_from_checkpoint(checkpoint_path=candidate_models[0])
     return (current_model)
 
 #-----------------------------------
@@ -382,10 +390,16 @@ def evaluate_on_test_and_unlabel(dspec, args, si_iter,current_model,optimal_mode
     dsc.s_i = si_iter
 
     optimal_model.eval()
+    
+    test_features=torch.tensor(orig_data['test_features'],device='cuda')
+    test_y=torch.tensor(orig_data['test_y'],device='cuda')
+    ulab_features=torch.tensor(orig_data['unlabel_features'],device='cuda')
+    ulab_y=torch.tensor(orig_data['unlabel_y'],device='cuda')
 
-    test_acc = optimal_model.predict_test(orig_data['test_features'], torch.argmax(orig_data['test_y'], 1))
-    unlabel_acc = optimal_model.predict_test(orig_data['unlabel_features'],
-                                             torch.argmax(orig_data['unlabel_y'], 1))
+    with torch.no_grad():
+
+        test_acc = optimal_model.predict_test(test_features, torch.argmax(test_y, 1))
+        unlabel_acc = optimal_model.predict_test(ulab_features,torch.argmax(ulab_y, 1))
 
     test_acc = np.array([test_acc.cpu().detach().item()])
     filepath = "{0}/saved_models/{1}-s_i={2}_test_acc.out".format(dspec.save_folder,
@@ -958,12 +972,13 @@ from typing import IO, Any, Dict, Iterable, Optional, Union, cast
 
 # combine synthetic data w original labelled data
 class CGANSupervisedDataModule(pl.LightningDataModule):
-    def __init__(self, orig_data, synth_dd,inclusions, batch_size: int = 64):
+    def __init__(self, orig_data, synth_dd,inclusions, batch_size: int = 64,n_to_sample_for_orig: str='unlabelled'):
         super().__init__()
         self.orig_data = orig_data
         self.batch_size = batch_size
         self.synth_dd=synth_dd
         self.inclusions=inclusions
+        self.n_to_sample_for_orig=n_to_sample_for_orig#'labelled' #'unlabelled'
 
     def setup(self, stage: Optional[str] = None):
         orig_data = self.orig_data
@@ -1011,7 +1026,18 @@ class CGANSupervisedDataModule(pl.LightningDataModule):
             n_unlabelled = X_train_ulab.shape[0]
             n_labelled = X_train_lab.shape[0]
             dummy_label_weights = torch.ones(n_labelled)
-            resampled_i = torch.multinomial(dummy_label_weights, num_samples=n_unlabelled, replacement=True)
+            
+            if self.n_to_sample_for_orig=='labelled':
+                num_samples=n_labelled
+            
+            elif self.n_to_sample_for_orig=='unlabelled':
+                num_samples=n_unlabelled
+                
+            elif self.n_to_sample_for_orig=='baseline':
+                num_samples=2000 #keep in line with original datsets
+                
+            
+            resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
             X_train_lab_rs = X_train_lab[resampled_i]
             y_train_lab_rs = y_train_lab[resampled_i]
 
@@ -1038,10 +1064,25 @@ class CGANSupervisedDataModule(pl.LightningDataModule):
 
         return (self)
 
+    # def train_dataloader(self):
+    #     return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
+
+    # def val_dataloader(self):
+    #     return DataLoader(self.data_validation, batch_size=self.nval)
+    
     def train_dataloader(self):
-        return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
+        has_gpu=torch.cuda.is_available()
+        if has_gpu:
+            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True, pin_memory=True,num_workers=4)
+        else:
+            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
-        return DataLoader(self.data_validation, batch_size=self.nval)
+        has_gpu=torch.cuda.is_available()
+        if has_gpu:
+            return DataLoader(self.data_validation, batch_size=self.nval, pin_memory=True,num_workers=4)
+        else:
+            return DataLoader(self.data_validation, batch_size=self.nval)
+
 
 
