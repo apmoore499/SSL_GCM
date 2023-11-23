@@ -691,7 +691,7 @@ def generate_samples_to_dict_tripartite(dsc, has_gpu, dsc_generators, device_str
 
         #now cat w label
 
-        cat_input_w_label=torch.cat((cat_input,synthetic_data[l_var]),1)
+        cat_input_w_label=torch.cat((cat_input,synthetic_data[l_var]),1).float()
 
 
 

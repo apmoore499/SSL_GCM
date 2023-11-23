@@ -281,6 +281,12 @@ class Generator_X2_from_YX1(pl.LightningModule):
 
         # 950 Unlabelled <- model does not see labels for these
 
+        randperm_val=torch.randperm(10000)
+        
+        randperm_trans=torch.randperm(10000)
+
+        # if val_feat.shape[0]>10000:
+        #     val_feat=val_feat[torch.randperm(10000),:]
 
         #
         
@@ -288,12 +294,21 @@ class Generator_X2_from_YX1(pl.LightningModule):
         val_feat_cond=batch[1].squeeze(0).float()
         val_y=batch[2].squeeze(0)
         
+
         trans_feat_target=batch[3].squeeze(0).float()
         trans_feat_cond=batch[4].squeeze(0).float()
         trans_y=batch[5].squeeze(0)
 
         #set_trace()
+        if val_feat_target.shape[0]>10000:
+            val_feat_target=val_feat_target[randperm_val]
+            val_feat_cond=val_feat_cond[randperm_val]
+            val_y=val_y[randperm_val]
         
+        if trans_feat_target.shape[0]>10000:
+            trans_feat_target=trans_feat_target[randperm_trans]
+            trans_feat_cond=trans_feat_cond[randperm_trans]
+            trans_y=trans_y[randperm_trans]
         
         val_y_oh=val_y.float()#torch.nn.functional.one_hot(val_y)
         trans_y_oh=trans_y.float()#torch.nn.functional.one_hot(trans_y)

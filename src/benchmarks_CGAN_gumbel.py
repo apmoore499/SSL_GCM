@@ -10,7 +10,9 @@ import os
 
 import torch.nn
 from torch.nn.functional import gumbel_softmax
+
 import time
+#from generative_models.gen_data_loaders import SSLDataModule_Unlabel_X
 from collections import OrderedDict
 st=time.time()
 
@@ -36,7 +38,10 @@ from generative_models.benchmarks_cgan import *
 from parse_data import *
 from torch import optim
 import copy
-from torch.utils.tensorboard import SummaryWriter
+
+
+torch.set_float32_matmul_precision('medium') #try with 4090
+
 
 if __name__ == '__main__':
 
@@ -62,6 +67,8 @@ if __name__ == '__main__':
     parser.add_argument('--estop_mmd_type',help='use trans or val on mmd validation',default='trans')
     parser.add_argument('--use_optimal_y_gen',help='use optimal y generator or not',default='False')
 
+
+
     args = parser.parse_args()
 
     args.use_single_si=str_to_bool(args.use_single_si)
@@ -69,7 +76,6 @@ if __name__ == '__main__':
     args.use_benchmark_generators=str_to_bool(args.use_benchmark_generators)
     args.use_bernoulli=str_to_bool(args.use_bernoulli)
     args.use_optimal_y_gen=str_to_bool(args.use_optimal_y_gen)
-
     # get dataspec, read in as dictionary
     # this is the master dictionary database for parsing different datasets / misc modifications etc
     master_spec=pd.read_excel('combined_spec.xls',sheet_name=None)
@@ -85,6 +91,7 @@ if __name__ == '__main__':
 
     # GPU preamble
     has_gpu=torch.cuda.is_available()
+    #gpu_kwargs={'gpus':torch.cuda.device_count(),'precision':16} if has_gpu else {}
     gpu_kwargs={'gpus':torch.cuda.device_count()} if has_gpu else {}
     hpms_dict={}
 
@@ -94,11 +101,15 @@ if __name__ == '__main__':
         device_string='cpu'
 
     d_n=args.d_n
+
     n_iterations=args.n_iterations
+
     dn_log=dspec.dn_log
+
 
     SAVE_FOLDER=dspec.save_folder
     DELAYED_MIN_START=100
+
 
     algo_variant='gumbel'
 
@@ -107,8 +118,10 @@ if __name__ == '__main__':
     candidate_si=csi[~np.isnan(csi)]
     args.optimal_si_list = [int(s) for s in candidate_si]
     if args.use_single_si==True: #so we want to use single si, not entire range
+        #args.optimal_si_list=[args.optimal_si_list[args.s_i]]
         args.optimal_si_list = [args.s_i]
-
+    #now we are onto training
+    print('hello there')
     for k, s_i in enumerate(args.optimal_si_list):
         print('doing s_i: {0}'.format(s_i))
         args.st = time.time()
@@ -127,24 +140,35 @@ if __name__ == '__main__':
         else:
             label_idx = np.where(np.array(ordered_keys) == label_name)[0][0]
 
+
+
         unlabelled_keys = ordered_keys[:label_idx]
         labelled_key = ordered_keys[label_idx]
         conditional_keys = ordered_keys[label_idx + 1:]
 
-        
-        topsort_order = np.array(dsc.variable_types) #split into parent, spouse, child
+
+        #split into parent, spouse, child
+        topsort_order = np.array(dsc.variable_types)
+
+        print('pausing here')
+
         lab_idx = np.where(topsort_order == 'label')[0]
 
         # need to partition into spouse also
+
         networkx_dag = dsc.dag.to_networkx()  # converting to networkx object for easier
         mb_dict = return_mb_dict(networkx_dag)
         mb_label_var = mb_dict[lab_idx[0]]
 
-        #convert to unique elements, then remove variables shared bw parent&spouse to just parent
+        #convert to unique elements
+
+        #then remove variables shared bw parent&spouse to just parent
+
         for k in mb_label_var.keys():
             mb_label_var[k]=list(set(mb_label_var[k]))
 
         # ok now if any v common to spouse/children, put in effect only
+
         for v in mb_label_var['children']:
             if v in mb_label_var['spouses']:
                 mb_label_var['spouses'].remove(v)
@@ -154,9 +178,17 @@ if __name__ == '__main__':
             if v in mb_label_var['spouses']:
                 mb_label_var['spouses'].remove(v)
 
+
+        print('pausing here')
         # remove self from spouses
-        if len(mb_label_var['spouses']>0) and lab_idx[0] in mb_label_var['spouses']:
+        try:
             mb_label_var['spouses'].remove(lab_idx[0])
+        except:
+            next
+        finally:
+            next
+
+
 
         # partition into causal/label/effect index
         ce_dict = {'cause': list(set(mb_label_var['parent'])),
@@ -164,11 +196,17 @@ if __name__ == '__main__':
                         'lab': lab_idx[0],
                         'effect': list(set(mb_label_var['children']))}
 
+        print('pausing here')
+
 
         unlabelled_keys = ordered_keys[:label_idx]
         labelled_key = ordered_keys[label_idx]
         conditional_keys = ordered_keys[label_idx + 1:]
 
+
+
+
+        #print('pausing here')
         print('#########################')
         print('#                        ')
         print('TRAINING CAUSES + SPOUSES')
@@ -176,14 +214,20 @@ if __name__ == '__main__':
         print('#########################')
 
 
+
         cause_spouse_v_idx=ce_dict['cause']+ce_dict['spouse']
         label_v_idx=ce_dict['lab']
         effect_v_idx=ce_dict['effect']
+
 
         # try like this - overwrite instead of code above!
         unlabelled_keys = [dsc.labels[k] for k in cause_spouse_v_idx] # cause spouse ... ordered_keys[:label_idx]
         labelled_key =  dsc.labels[ce_dict['lab']]   # label variable ordered_keys[label_idx]
         conditional_keys = [dsc.labels[k] for k in effect_v_idx]  # effect ...ordered_keys[label_idx + 1:]
+
+
+
+
 
         dsc_generators['ordered_v']={} #to be used later on for retrieving variable names, in correct order
         dsc_generators['ordered_v_alphan']={}
@@ -195,10 +239,16 @@ if __name__ == '__main__':
         #3. effect variables
 
         #we need to get the relvant idx for input of variables downstream
-    
+
+        #train the cause_spouse_v_idx ones
+
+
+        # if 'X' in dsc.labels[v_i]:
         cur_x_lab = reduce_list([dsc.label_names[v] for v in cause_spouse_v_idx])
         # get the matching data...
         all_x = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled', 'unlabelled'])]
+        # match column names
+        # ldc=[c for c in all_x.columns if cur_x_lab in c]
         # subset
         x_vals = all_x[cur_x_lab].to_numpy()
         # get median pwd
@@ -218,6 +268,9 @@ if __name__ == '__main__':
 
         tloader = SSLDataModule_Unlabel_X(dsc.merge_dat, target_x=cur_x_lab, batch_size=args.tot_bsize)
 
+        #concat the variable names
+
+        #vn_concat='_'.join([dsc.labels[v] for v in cause_spouse_v_idx])
         vn_concat='CAUSE_SPOUSE'
         model_name = create_model_name(vn_concat, algo_variant)
 
@@ -241,13 +294,17 @@ if __name__ == '__main__':
         trainer.fit(gen_x, tloader)  # train here
 
         mod_names = return_saved_model_name(model_name, dspec.save_folder, dspec.dn_log, s_i)
-        gen_x = gen_x.load_from_checkpoint(checkpoint_path=mod_names[0])  # loads correct model
+        gen_x = type(gen_x).load_from_checkpoint(checkpoint_path=mod_names[0])  # loads correct model
+        #dsc_generators[dsc.labels[v_i]] = gen_x
+        #dsc_generators[dsc.labels[v_i]].conditional_on_label = False
+        #dsc_generators[dsc.labels[v_i]].conditional_feature_names = []
 
         dsc_generators['cause_spouse_generator']=gen_x
         dsc_generators['cause_spouse_generator'].conditional_on_label = False
         dsc_generators['cause_spouse_generator'].conditional_feature_names = []
         dsc_generators['ordered_v']['cause']=[dsc.labels[v] for v in cause_spouse_v_idx]
         dsc_generators['ordered_v_alphan']['cause'] = cur_x_lab
+
 
         ###############
         #
@@ -265,6 +322,8 @@ if __name__ == '__main__':
         source_edges = dsc.dag.es.select(_target=v_i)
         source_vertices = [s_e.source_vertex for s_e in source_edges]  # source vertex
         sv = list(set([v.index for v in source_vertices]))  # source idx
+
+
         vinfo_dict = {}  # reset this dict
         cur_variable = dsc.labels[v_i]
         source_variable = [dsc.labels[s] for s in sv]
@@ -311,34 +370,71 @@ if __name__ == '__main__':
             for c in cond_lab:
                 concat_cond_lab = concat_cond_lab + dsc.label_names_alphan[c]
 
+            #tloader = SSLDataModule_Y_from_X(dsc.merge_dat,
+            #                                 tvar_name=cur_variable,
+            #                                 cvar_name=concat_cond_lab,
+            #                                 batch_size=args.lab_bsize)
+
             model_name = create_model_name(dsc.labels[v_i], algo_variant)
             cond_vars = ''.join(cond_lab)
+            #min_bce_chkpt_callback = return_chkpt_min_bce(model_name, dspec.save_folder)
+            #estop_cb = return_early_stop_cb_bce(patience=args.estop_patience)
+            #callbacks = [min_bce_chkpt_callback, estop_cb]
+            #tb_logger = create_logger(model_name, d_n, s_i)
+            #trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations)
+            #delete_old_saved_models(model_name, dspec.save_folder, s_i)
+           # trainer.fit(y_x1gen, tloader)  # train here
+            #mod_names = return_saved_model_name(model_name, dspec.save_folder, d_n, s_i)
+            #if len(mod_names) > 1:
+            #    print('error duplicate model names')
+            #    assert 1 == 0
+            #y_x1gen = y_x1gen.load_from_checkpoint(checkpoint_path=mod_names[0])
             dsc_generators[dsc.labels[v_i]] = copy.deepcopy(y_x1gen)
+            #dsc_generators[dsc.labels[v_i]].conditional_feature_names = cond_lab
+            #dsc_generators[dsc.labels[v_i]].conditional_on_label = False
 
             dsc_generators['ordered_v']['label'] = {}
             dsc_generators['ordered_v']['label']['inputs'] = cond_lab
             dsc_generators['ordered_v']['label']['inputs_alphan'] = concat_cond_lab
             dsc_generators['ordered_v']['label']['output'] = dsc.labels[v_i]
+            # dsc_generators['ordered_v']['label']['inputs_alphan'] = concat_cond_lab
+
 
         temperature = args.init_temp  # initial temperature
         order_to_train = dsc.dag.topological_sorting()
         all_dsc_vars = dsc.labels
-        all_dsc_vtypes = dsc.variable_types         # derive the variable type from the labels
+        # derive the variable type from the labels
+
+
+        all_dsc_vtypes = dsc.variable_types#['feature' for v in all_dsc_vars]
+        # get idx of y
+        #for k, vlabel in enumerate(all_dsc_vars):
+        #    if 'Y' in vlabel or 'location' in vlabel:
+       #         all_dsc_vtypes[k] = 'label'
 
         ddict_vtype = {}
         for v, vtype in zip(all_dsc_vars, all_dsc_vtypes):
             ddict_vtype[v] = vtype
 
+        #dsc_generators = OrderedDict()  # ordered dict of the generators
         dsc.causes_of_y = []
-        
-        label_name = dsc.labels[np.where([d == 'label' for d in dsc.variable_types])[0][0]] # name of the labelled variable
+
+        # name of the labelled variable
+        label_name = dsc.labels[np.where([d == 'label' for d in dsc.variable_types])[0][0]]
 
         # first sweep through = create generators
         var_conditional_feature_names = {}
         dict_conditional_on_label = {}
 
+        #now concat all of the effect $X$ generators...
+
+        #effect_v_idx
+
+        # if 'X' in dsc.labels[v_i]:
         cur_x_lab = reduce_list([dsc.label_names[v] for v in effect_v_idx])
 
+
+        #v_i = label_v_idx[0]
         k_n = 2
 
 
@@ -350,7 +446,14 @@ if __name__ == '__main__':
                 target_vertex_id = edge.target
                 source_vertex = dsc.dag.vs[source_vertex_id]
                 all_source_vertices.append(source_vertex.index)
+                # print(source_vertex)
 
+
+        #source_vertices = [s_e.source_vertex for s_e in source_edges]  # source vertex
+        #sv = [v.index for v in source_vertices]  # source idx
+        #vinfo_dict = {}  # reset this dict
+        #cur_variable = dsc.labels[v_i]
+        #source_variable = [dsc.labels[s] for s in sv]
         print('#########################')
         print('#                        ')
         print('CREATING EFFECT GENERATOR ')
@@ -358,13 +461,20 @@ if __name__ == '__main__':
         print('#########################')
 
         sv=list(set(all_source_vertices))
+        #print('+---------------------------------------+')
+        #print('cur_var_name : {0}\tsource_var_name(s): {1}'.format(cur_variable, source_variable))
         cond_lab = [dsc.labels[l] for l in sv]  # labels of conditinoal vars
         cond_vtype = [dsc.variable_types[l] for l in sv]  # types of conditional vars
         cond_idx = sv  # index of conditioanl vars in pandas df
 
+        #cond_lab = source_variable  # labels of conditinoal vars
+        #cond_vtype = [dsc.variable_types[l] for l in all_source_vertices]  # types of conditional vars
+        #cond_idx = all_source_vertices  # index of conditioanl vars in pandas df
+        #sv = list(set(all_source_vertices))
 
 
         if len(sv) == 1 and cond_vtype == ['label']:
+            #cur_x_lab = dsc.labels[v_i]
             # get the matching data...
             all_vals = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled', 'unlabelled'])]
             # match column names
@@ -389,18 +499,93 @@ if __name__ == '__main__':
                                            n_ulab=n_ulab,
                                            label_batch_size=args.lab_bsize,
                                            unlabel_batch_size=args.tot_bsize)  # this is it
+            # get data loader
+            #tloader = SSLDataModule_X_from_Y(orig_data_df=dsc.merge_dat,
+            #                                 tvar_name=cur_x_lab,
+            #                                 cvar_name=cond_lab,
+            #                                 cvar_type='label',
+            #                                 labelled_batch_size=args.lab_bsize,
+            #                                 unlabelled_batch_size=args.tot_bsize,
+            #                                 **vinfo_dict)
+            #model_name = create_model_name(dsc.labels[v_i], algo_variant)
+            #cond_vars = ''.join(cond_lab)
+
+            #if args.estop_mmd_type == 'val':
+            #    estop_cb = return_early_stop_min_val_mmd(patience=args.estop_patience)
+            #    min_mmd_checkpoint_callback = return_chkpt_min_val_mmd(model_name,
+            #                                                          dspec.save_folder)  # returns max checkpoint
+
+            #elif args.estop_mmd_type == 'trans':
+            #    estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
+            #    min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,
+            #                                                             dspec.save_folder)  # returns max checkpoint
+
+            #callbacks = [min_mmd_checkpoint_callback, estop_cb]
+            #tb_logger = create_logger(model_name, d_n, s_i)
+            #trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, args.n_iterations)
+            #delete_old_saved_models(model_name, dspec.save_folder, s_i)
+            #trainer.fit(x2_y_gen, tloader)
+            #mod_names = return_saved_model_name(model_name, dspec.save_folder, dspec.dn_log, s_i)
+
+            #if len(mod_names) > 1:
+            #    print(mod_names)
+            #    print('error duplicate model names')
+            #    assert 1 == 0
+            #elif len(mod_names) == 1:
+            #    x2_y_gen = x2_y_gen.load_from_checkpoint(checkpoint_path=mod_names[0])
+            #else:
+            #    assert 1 == 0
 
             # training complete, save to list
             dsc_generators['effect_generator'] = copy.deepcopy(x2_y_gen)
             dsc_generators['effect_generator'].conditional_on_label = True
             dsc_generators['effect_generator'].conditional_feature_names = []
 
+            #dsc_generators['effect_generator'] = copy.deepcopy(genx2_yx1)
+           # dsc_generators['effect_generator'].conditional_on_label = True
+            #dsc_generators['effect_generator'].conditional_feature_names = cond_lab
+
             dsc_generators['ordered_v']['effect'] = {}
             dsc_generators['ordered_v']['effect']['inputs'] = cond_lab
             dsc_generators['ordered_v']['effect']['input_features_alphan'] = []
-            dsc_generators['ordered_v']['effect']['input_label_alphan'] = label_name
-            dsc_generators['ordered_v']['effect']['outputs'] = reduce_list([dsc.labels[v] for v in effect_v_idx])
-            dsc_generators['ordered_v']['effect']['outputs_alphan'] = reduce_list([dsc.label_names_alphan[v] for v in effect_v_idx])
+            dsc_generators['ordered_v']['effect']['input_label_alphan'] = [label_name]
+
+            outlabs=[dsc.labels[v] for v in effect_v_idx]
+            
+            
+            outputs_list=[]
+            
+            for o in outlabs:
+                if type(o)==list:
+                    outputs_list+=o
+                else:
+                    outputs_list.append(o)
+
+            
+            #dsc_generators['ordered_v']['effect']['outputs'] = reduce_list([dsc.labels[v] for v in effect_v_idx])
+            #dsc_generators['ordered_v']['effect']['outputs_alphan'] = reduce_list([dsc.label_names_alphan[v] for v in effect_v_idx])
+            
+            
+            dsc_generators['ordered_v']['effect']['outputs'] = outputs_list #reduce_list([dsc.labels[v] for v in effect_v_idx])
+            
+            
+            print(effect_v_idx)
+            
+            dsc_generators['ordered_v']['effect']['outputs_alphan'] = reduce_list([dsc.label_names_alphan[v] for v in outlabs])
+            
+            
+            
+            
+            
+            #outlabs_alphan=[dsc.label_names_alphan[v] for v in effect_v_idx]
+            
+            
+            
+            
+            #dsc_generators['ordered_v']['effect']['outputs_alphan'] = reduce_list([dsc.label_names_alphan[v] for v in effect_v_idx])
+            
+            
+            #dsc_generators['ordered_v']['effect']['outputs_alphan'] = outputs_list_alphan #reduce_list([dsc.label_names_alphan[v] for v in effect_v_idx])
 
 
             # Y  ->  X2
@@ -419,6 +604,9 @@ if __name__ == '__main__':
             for c in conditional_feature_names:
                 concat_cond_lab = concat_cond_lab + dsc.label_names_alphan[c]
 
+            # get target variable names if multidimensional
+            #c = dsc.labels[v_i]
+            #cur_x_lab = dsc.labels[v_i]
             lab_dat = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled'])]
             all_dat = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled', 'unlabelled'])]
             n_lab = lab_dat.shape[0]
@@ -457,27 +645,128 @@ if __name__ == '__main__':
                                               label_batch_size=args.lab_bsize,
                                               unlabel_batch_size=args.tot_bsize)
 
+            #if dsc.feature_dim > 1:
+            #    cur_x_lab = dsc.label_names_alphan[cur_x_lab]
+            #else:
+           #     cur_x_lab = cur_x_lab
+
+            #tloader = SSLDataModule_X2_from_Y_and_X1(
+            #    orig_data_df=dsc.merge_dat,
+            #    tvar_names=cur_x_lab,  # change from cur_x_lab
+            #    cvar_names=concat_cond_lab,
+            #    label_var_name=label_name,
+            #    labelled_batch_size=args.lab_bsize,
+            #    unlabelled_batch_size=args.tot_bsize,
+            #    use_bernoulli=args.use_bernoulli,
+            #    causes_of_y=None,
+            #    **vinfo_dict)
+
+            # train
+
+            #vn_concat = '_'.join([dsc.labels[v] for v in effect_v_idx])
+
+            #model_name = create_model_name(vn_concat, algo_variant)
+
+            #model_name = create_model_name(dsc.labels[v_i], algo_variant)
+            #cond_vars = ''.join(cond_lab)
+
+            #if args.estop_mmd_type == 'val':
+            #    estop_cb = return_early_stop_min_val_mmd(patience=args.estop_patience)
+            #    min_mmd_checkpoint_callback = return_chkpt_min_val_mmd(model_name,
+                                                                       #dspec.save_folder)  # returns max checkpoint
+
+            #elif args.estop_mmd_type == 'trans':
+            #    estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
+            #    min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,
+                                                                         #dspec.save_folder)  # returns max checkpoint
+
+            #callbacks = [min_mmd_checkpoint_callback, estop_cb]
+            ##tb_logger = create_logger(model_name, args.d_n, s_i)
+            #trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations)
+            #delete_old_saved_models(model_name, dspec.save_folder, s_i)  # delete old
+            #trainer.fit(genx2_yx1, tloader)  # train here
+
+            #mod_names = return_saved_model_name(model_name, dspec.save_folder, dspec.dn_log, s_i)
+            #if len(mod_names) > 1:
+            #    print('error duplicate model names')
+            #    assert 1 == 0
+            #elif len(mod_names) == 1:
+            #    genx2_yx1 = genx2_yx1.load_from_checkpoint(checkpoint_path=mod_names[0])
+            #else:
+            #    assert 1 == 0
+
+            # dsc_generators[dsc.labels[v_i]]=copy.deepcopy(genx2_yx1)
+
             dsc_generators['effect_generator'] = copy.deepcopy(genx2_yx1)
+            #dsc_generators['effect_generator'].conditional_on_label = True
+            #dsc_generators['effect_generator'].conditional_feature_names = cond_lab
+
 
             dsc_generators['ordered_v']['effect'] = {}
             dsc_generators['ordered_v']['effect']['inputs'] = cond_lab
             dsc_generators['ordered_v']['effect']['input_features_alphan'] = concat_cond_lab
-            dsc_generators['ordered_v']['effect']['input_label_alphan'] = label_name
+            dsc_generators['ordered_v']['effect']['input_label_alphan'] = [label_name]
             dsc_generators['ordered_v']['effect']['outputs'] = conditional_feature_names
             dsc_generators['ordered_v']['effect']['outputs_alphan'] = cur_x_lab
+
+
+
+        #print('pausing here')
+
 
         for k in ['effect_generator',LABEL_NAME]:
             dsc_generators[k].configure_optimizers()
 
-        # TRAINING GUMBEL
+        print('this is where we do the big pause')
 
 
+        #ok now we ready to do the gumbel
+
+        ###################
+        ###################
+        # TRAINING GUMBEL #
+        ###################
+        ###################
+
+        #the pass thru should be simpler:
+
+        # 1. pass thru for p(Y|X_C)
+        # 2. pass thru for p(X_E|Y,X_C,X_S)
+        # 3. pass thru for p(X_E|\hat{Y},X_C,X_S) <----- unlabelled pass
+        # 4. validation
+
+
+        # Now we are using gumbel method to train all other generators
+        # form dict comprising the idx of conditional features in the dataloader for each variable to be trained
+        #all_keys = [k for k in dsc_generators.keys()]
+        # make sure that label is removed from conditional_feature_names...
+        #for k in all_keys:
+        #    if hasattr(dsc_generators[k], 'conditional_feature_names'):
+        #        cond_feat_var = dsc_generators[k].conditional_feature_names
+        #        if dsc.label_name in cond_feat_var:
+        #            new_fn = [f for f in cond_feat_var if f != dsc.label_name]  # new feature names
+        #            dsc_generators[k].conditional_feature_names = new_fn  # overwrite conditional_feature_names w label var removed
+
+            # GPU preamble
+        has_gpu = torch.cuda.is_available()
+        # gpu_kwargs={'gpus':torch.cuda.device_count(),'precision':16} if has_gpu else {}
+        gpu_kwargs = {'gpus': torch.cuda.device_count()} if has_gpu else {}
         if has_gpu:
             for k in [LABEL_NAME,'effect_generator']:
                 dsc_generators[k].cuda()
 
 
+
+
+
+
+
+
+
+
         for ttt in range(args.n_trials):  # n_trials = 1 usually. set > 1 to check stability of gumbel estimation
+            # create new optimiser object to perform simultaneous update
+            # when using gumbel noise
 
             all_parameters_labelled = []  # parameters of all generators including generator for Y
 
@@ -511,6 +800,11 @@ if __name__ == '__main__':
             otemp_dict = {}  # for storing optimal temp value
             tcounter = 1
 
+
+            #dsc_generators['ordered_v']['label']['inputs'] = cond_lab
+            #dsc_generators['ordered_v']['label']['inputs_alphan'] = concat_cond_lab
+            #dsc_generators['ordered_v']['label']['output'] = dsc.labels[v_i]
+
             #create list of alphan features
             all_feature_names_alphan = reduce_list([dsc.label_names_alphan[f] for f in dsc.feature_names])
 
@@ -522,14 +816,26 @@ if __name__ == '__main__':
             y_truelabel = torch.tensor(y_truelabel)
             y_truelabel = torch.nn.functional.one_hot(y_truelabel).float()
 
+
+            # check that y_features is not used for BCE validation!!!
+
             all_labelled_features = dsc.merge_dat[dsc.merge_dat.type == 'labelled'][all_feature_names_alphan]
 
             all_labelled_label = dsc.merge_dat[dsc.merge_dat.type == 'labelled'][[LABEL_NAME]].values.flatten()
             all_labelled_label = torch.tensor(all_labelled_label)
             all_labelled_label = torch.nn.functional.one_hot(all_labelled_label).float()
 
+
+
+            # i think we gotta just use ```all_feature_names_alphan``` here???
             all_unlabelled_and_labelled=dsc.merge_dat[dsc.merge_dat.type.isin(['labelled','unlabelled'])][all_feature_names_alphan]
+
+            # i think we gotta just use ```all_feature_names_alphan``` here???
             all_unlabelled=dsc.merge_dat[dsc.merge_dat.type.isin(['unlabelled'])][all_feature_names_alphan]
+
+
+
+
             all_validation_features=dsc.merge_dat[dsc.merge_dat.type.isin(['validation'])][all_feature_names_alphan]
 
             label_name_alphan=LABEL_NAME
@@ -537,7 +843,6 @@ if __name__ == '__main__':
             all_validation_label=dsc.merge_dat[dsc.merge_dat.type.isin(['validation'])][label_name_alphan].values.flatten()
             all_validation_label = torch.tensor(all_validation_label)
             all_validation_label = torch.nn.functional.one_hot(all_validation_label).float()
-            
             # set up indexing for cause/spouse and effect features
 
             dsc_idx_dict = {}
@@ -551,14 +856,22 @@ if __name__ == '__main__':
             dsc_idx_dict['all_features'] = [np.where(c == dsc_idx_dict['all_features'])[0][0] for c in
                                       dsc_idx_dict['all_features']]
 
+
             # get median_pwd of cause/spouse
             median_pwd_dict={}
             median_pwd_dict['cause_spouse']=get_median_pwd(torch.tensor(all_unlabelled_and_labelled[dsc_idx_dict['cause_spouse']].values,device=device_string))
             median_pwd_dict['effect'] = get_median_pwd(torch.tensor(all_unlabelled_and_labelled[dsc_idx_dict['effect']].values, device=device_string))
+            #median_pwd_dict['all_features'] = get_median_pwd(torch.tensor(all_unlabelled_and_labelled[dsc_idx_dict['all_features']].values, device=device_string))
 
             sigma_dict={}
             sigma_dict['cause_spouse']=[median_pwd_dict['cause_spouse'] * k for k in [1/4,1/2,1,2,4]]
             sigma_dict['effect'] = [median_pwd_dict['effect'] * k for k in [1 / 4, 1 / 2, 1, 2, 4]]
+            #sigma_dict['all_features'] = [median_pwd_dict['all_features'] * k for k in [1 / 4, 1 / 2, 1, 2, 4]]
+            #median_pwd_dict['all_features']
+            #median_pwdall_unlabelled_and_labelled[dsc_idx_dict['cause_spouse']]
+
+            # get median_pwd of effect
+
 
             if has_gpu:
 
@@ -592,13 +905,19 @@ if __name__ == '__main__':
             early_end = False
             epoch = 0
             templist = np.linspace(0.99, 0.1, 160)
-
+            # templist = np.linspace(0.99, 0.9, 10)
             converged = False
+
+            from torch.utils.tensorboard import SummaryWriter
 
             # default `log_dir` is "runs" - we'll be more specific here
             writer = SummaryWriter('lightning_logs/gumbel_training_mmd')
             feature_idx_subdict = {c: idx for idx, c in enumerate(all_unlabelled_and_labelled.columns) if
                                    all_unlabelled_and_labelled.columns[idx] == c}
+
+            #causes_of_y = var_conditional_feature_names[labelled_key]
+
+            #i = [dsc.label_names_alphan[k] for k in causes_of_y]
 
             # store causes of y column names here:
             causes_of_y_feat_names = dsc_generators['ordered_v']['label']['inputs_alphan']
@@ -607,12 +926,17 @@ if __name__ == '__main__':
 
             # convert column names to index
             causes_of_y_idx_dl = []
+            #dsc_generators['ordered_v']['label'] = {}
+            #dsc_generators['ordered_v']['label']['inputs'] = cond_lab
 
+            #dsc_generators['ordered_v']['label']['output'] = dsc.labels[v_i]
             unlabelled_val_losses=[]
             for k, cf in enumerate(all_x_cols):
                 if cf in causes_of_y_feat_names:
                     causes_of_y_idx_dl.append(k)
-
+            #templist=[0.99,0.98,0.97,0.96,0.95,0.94,0.93,0.92,0.91,0.90,
+            #          0.89,0.88,0.87,0.86,0.85,0.84,0.83,0.82,0.81,0.80,
+            #          0.79,0.77,0.77,0.76,0.75,0.74,0.73,0.72,0.71,0.70]
             for t_iter, temp in enumerate(templist):
                 if converged == False:
 
@@ -670,6 +994,22 @@ if __name__ == '__main__':
                         ground_truth_ef = ground_truth_features[:, dsc_idx_dict['ef_idx']]
                         ground_truth_lab=cur_batch_label
 
+                        #ground truth cause / spouse
+
+
+
+
+                        #ground truth effect
+
+                        #all_feature_names_alphan
+
+                        #dsc_generators['ordered_v']['effect']['outputs_alphan']
+
+
+
+
+                        # split into features and label for this instance
+                        # instantiate our ancestor dict that will be used for current batch
                         current_ancestor_dict = {}
                         # variables where Y is not ancestor
                         # append them to current_ancestor_dict
@@ -695,6 +1035,12 @@ if __name__ == '__main__':
                         effect_feature_inputs=dsc_generators['ordered_v']['effect']['input_features_alphan']
                         #get the label variable name
                         effect_label_input=dsc_generators['ordered_v']['effect']['input_label_alphan']
+                        
+                        from IPython.core.debugger import set_trace
+                        
+                        #set_trace()
+                        
+                        
                         effect_combined_inputs = effect_feature_inputs + effect_label_input
 
 
@@ -743,6 +1089,15 @@ if __name__ == '__main__':
 
                         y_given_cause_mmd_loss=mix_rbf_mmd2_joint(ground_truth_features,ground_truth_features,ground_truth_lab,predicted_mod_lab,sigma_list=sigma_dict['cause_spouse'])
 
+
+
+
+
+                        #ce_loss = torch.nn.CrossEntropyLoss()
+
+                        #bce_lab = ce_loss(ground_truth_lab, predicted_mod_lab.argmax(1).long())
+
+                        #labelled_loss=(bce_lab+joint_labelled_mmd_loss)
                         labelled_loss=torch.sum(torch.stack([joint_labelled_mmd_loss, effect_labelled_mmd_loss,y_given_cause_mmd_loss]), dim=0)/3
                         #labelled_loss= torch.add(,,)/3
                         #torch.nn.CrossEntropyLoss(ground_truth_lab.long(),predicted_mod_lab.long())
@@ -835,7 +1190,8 @@ if __name__ == '__main__':
                         unlabelled_loss.backward()
                         combined_unlabelled_optimiser.step()
                         # ...log the running loss
-                        writer.add_scalar('joint_unlabelled_mmd_loss_train',unlabelled_loss, t_iter)
+                        writer.add_scalar('joint_unlabelled_mmd_loss_train',
+                                          unlabelled_loss, t_iter)
 
 
                     #put this jones into eval mode!
@@ -876,6 +1232,10 @@ if __name__ == '__main__':
                             # now put into ancestor dictionary
                             current_ancestor_dict[labelled_key] = y_gumbel_softmax
 
+
+
+
+
                             # ok get the feature names
                             effect_feature_inputs = dsc_generators['ordered_v']['effect']['input_features_alphan']
                             # get the label variable name
@@ -890,6 +1250,8 @@ if __name__ == '__main__':
                                 cur_feature_inputs_lc = [current_ancestor_dict[f] for f in
                                                          dsc_generators['ordered_v']['effect']['inputs']]
                                 cur_feature_inputs_lc = tuple(cur_feature_inputs_lc)
+
+
 
                             generator_input = torch.cat(cur_feature_inputs_lc, 1)
                             # then add some noise
@@ -912,6 +1274,24 @@ if __name__ == '__main__':
                             # ground_truth_lab = cur_batch_label
                             # get mmd loss on this one
 
+                                        
+                                        
+                            #from IPython.core.debugger import set_trace
+                            
+                            
+                            #set_trace()
+                            
+                            
+                            if ground_truth_ef.shape[0]>10000:
+                                
+                                perm_of_feats=torch.randperm(ground_truth_ef.shape[0])[:10000]
+                                
+                                ground_truth_ef=ground_truth_ef[perm_of_feats]
+                                predicted_mod_ef=predicted_mod_ef[perm_of_feats]
+                                ground_truth_cs=ground_truth_cs[perm_of_feats]
+                                
+                                
+                            
                             joint_entire_unlabelled_mmd_loss = mix_rbf_mmd2_joint_regress(ground_truth_ef,
                                                                                    predicted_mod_ef,
                                                                                    ground_truth_cs,
@@ -940,12 +1320,33 @@ if __name__ == '__main__':
                         for batch_idx, d in enumerate(val_dloader_labelled):
                             cur_batch_features, cur_batch_label = d
 
+                            # PREDICT Y FROM CAUSE/SPOUSE IN LABELLED SAMPLE
+
+                            # PREDICT ALL EFFECTS FROM Y AND THE CAUSE/SPOUSE IN LABELLED SAMPLE
+
                             ground_truth_features=copy.deepcopy(cur_batch_features)
                             ground_truth_cs=ground_truth_features[:,dsc_idx_dict['cs_idx']]
                             ground_truth_ef = ground_truth_features[:, dsc_idx_dict['ef_idx']]
+
                             ground_truth_feat= ground_truth_features[:, dsc_idx_dict['ef_idx']]
+
                             #all_features
                             ground_truth_lab=cur_batch_label
+
+                            #ground truth cause / spouse
+
+
+
+
+                            #ground truth effect
+
+                            #all_feature_names_alphan
+
+                            #dsc_generators['ordered_v']['effect']['outputs_alphan']
+
+
+
+
                             # split into features and label for this instance
                             # instantiate our ancestor dict that will be used for current batch
                             current_ancestor_dict = {}
@@ -959,6 +1360,8 @@ if __name__ == '__main__':
                                 # put into ancestor dict
                                 current_ancestor_dict[k] = cur_batch_features[:, current_feature_idx].reshape(
                                     (-1, len(current_feature_idx)))  # maintain orig shape
+
+
                             # generate label first, and gumbel it
                             input_for_y = cur_batch_features[:, causes_of_y_idx_dl]
                             y_generated = dsc_generators[LABEL_NAME].forward(input_for_y)
@@ -968,6 +1371,9 @@ if __name__ == '__main__':
 
                             val_lab_soft_label_estimate = torch.nn.functional.gumbel_softmax(y_generated, hard=False,
                                                                                              tau=temp)
+
+
+
                             # now put into ancestor dictionary
                             current_ancestor_dict[labelled_key] = y_gumbel_softmax
                             #ok get the feature names
@@ -983,6 +1389,8 @@ if __name__ == '__main__':
                                 cur_feature_inputs_lc = [current_ancestor_dict[f] for f in
                                                          dsc_generators['ordered_v']['effect']['inputs']]
                                 cur_feature_inputs_lc = tuple(cur_feature_inputs_lc)
+
+
 
                             generator_input = torch.cat(cur_feature_inputs_lc, 1)
                             # then add some noise
@@ -1031,6 +1439,11 @@ if __name__ == '__main__':
                             writer.add_scalar('labelled_loss_validation',
                                               labelled_loss_validation, t_iter)
 
+                        #ce_loss=torch.nn.CrossEntropyLoss()
+
+                        #bce_lab = ce_loss(ground_truth_lab, predicted_mod_lab.argmax(1).long())
+
+                        #val_sum_mmd=labelled_loss_validation+unlabelled_loss_validation
                         val_sum_mmd=effect_labelled_mmd_loss + joint_entire_unlabelled_mmd_loss + val_bce_loss #try validating on unlabelled mmd only
                             # ...log the running loss
                         writer.add_scalar('val_sum_mmd',val_sum_mmd, t_iter)
@@ -1042,6 +1455,12 @@ if __name__ == '__main__':
                         epoch += 1
 
                         val_bces.append(val_bce_loss.cpu().detach().item())
+                        #inv_val_accuracies.append(current_inverse_acc)
+                        # need to set optimal_label_gen for first epoch
+                        #if epoch == 1:
+                       #     optimal_label_gen = copy.deepcopy(dsc_generators[dsc.label_var])
+                       #     current_min_bce = loss_lab_bce
+                        #    mintemp = temp
 
                         if epoch >= 2:
                            if val_bce_loss < min(val_bces[-epoch:-1]):
@@ -1050,6 +1469,12 @@ if __name__ == '__main__':
                                 mintemp = temp
                                 print('\nmin bce: {0}\n'.format(current_min_bce))
 
+                        #if DELAYED_MIN_START == epoch:
+                        #    optimal_mods = copy.deepcopy(dsc_generators)
+                        #    mintemp = temp
+                        #    current_val_loss = val_losses_joint[-1]
+                        #    minloss = current_val_loss
+                        #    converged = False
                         current_val_loss = val_losses_joint[-1]
                         if current_val_loss == min(val_losses_joint):
                             optimal_mods = copy.deepcopy(dsc_generators)
@@ -1064,6 +1489,8 @@ if __name__ == '__main__':
 
                         if DELAYED_MIN_START < epoch:
                             PREVIOUS_TRAJECTORY = args.estop_patience  # set trajectory to number of epochs so we just take min val loss of all models
+                            # get val_losses...
+                            #PREVIOUS_TRAJECTORY = epoch  # try setting to epoch instead here
 
                             prev_k_vloss = val_losses_joint[-PREVIOUS_TRAJECTORY:]
                             # get most prev val loss
@@ -1094,10 +1521,16 @@ if __name__ == '__main__':
             print('overwriting p(Y|X) for optimal generator...')
             optimal_mods[dsc.label_var] = optimal_label_gen
 
-        print('placing optimal models into dsc_generators: ')
+        print('list of bce')
+        print(val_bces)
+
+        print('placing optimal mods into dsc_generators: ')
 
         for m in optimal_mods.keys():
             dsc_generators[m]=copy.deepcopy(optimal_mods[m])
+
+
+
 
         print('training complete: now synthesise synthetic data')
 
@@ -1108,16 +1541,23 @@ if __name__ == '__main__':
                 bmodel=create_model_name(k,'basic')
                 model_to_search_for=dspec.save_folder+'/saved_models/'+bmodel+"*-s_i={0}-epoch*".format(s_i)
                 candidate_models=glob.glob(model_to_search_for)
-                dsc_generators[k]=dsc_generators[k].load_from_checkpoint(checkpoint_path=candidate_models[0])
+                dsc_generators[k]=type(dsc_generators[k]).load_from_checkpoint(checkpoint_path=candidate_models[0])
 
+        # generating synthetic data
+        # generate 10000 samples
+
+
+        #n_samples=50000
         n_samples=int(30000*min(dspec.n_unlabelled/1000,5)) #try to set this to deal wtih very large unalbeleld size...
-
-
+        
+        #n_samples = dsc.merge_dat.shape[0]
         synthetic_samples_dict=generate_samples_to_dict_tripartite(dsc,has_gpu,dsc_generators,device_string,n_samples,gumbel=True,tau=mintemp)
         joined_synthetic_data=samples_dict_to_df(dsc,synthetic_samples_dict,balance_labels=True,exact=False)
 
         algo_spec = copy.deepcopy(master_spec['algo_spec'])
         algo_spec.set_index('algo_variant', inplace=True)
+
+        #synthetic_data_dir = algo_spec.loc[algo_variant].synthetic_data_dir
 
         synthetic_data_dir = algo_spec.loc[algo_variant].synthetic_data_dir
         save_synthetic_data(joined_synthetic_data,
@@ -1145,8 +1585,17 @@ if __name__ == '__main__':
                      'time':total_time}
         if dsc.feature_dim==1:
             print('feature dim==1 so we are going to to attempt to plot synthetic v real data')
+            #plot_synthetic_and_real_data(hpms_dict,dsc,args,s_i,joined_synthetic_data,synthetic_data_dir,dspec)
         else:
+
+            #scols = [s.replace('_0', '') for s in joined_synthetic_data.columns]
+            #joined_synthetic_data.columns = scols
             joined_synthetic_data.rename(columns={'Y_0':'Y'},inplace=True)
+            #joined_synthetic_data=joined_synthetic_data[[c for c in dsc.merge_dat.columns]]
+            if 'y_given_x_bp' in dsc.merge_dat.columns:
+                dsc.merge_dat = dsc.merge_dat[[c for c in joined_synthetic_data.columns]]
+            if 'y_given_x_bp' in joined_synthetic_data.columns:
+                joined_synthetic_data=joined_synthetic_data[[c for c in dsc.merge_dat.columns]]
             synthetic_and_orig_data = pd.concat([dsc.merge_dat, joined_synthetic_data], axis=0)
 
             dsc.merge_dat=synthetic_and_orig_data
@@ -1155,5 +1604,6 @@ if __name__ == '__main__':
             dsc.var_names=dsc.labels
             dsc.feature_varnames=dsc.feature_names
             dsc.s_i=s_i
+            #plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir=synthetic_data_dir)
 
             print('data plotted')

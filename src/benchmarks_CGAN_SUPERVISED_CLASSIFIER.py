@@ -8,6 +8,7 @@ import pickle
 import igraph
 
 n_classes = 2
+torch.set_float32_matmul_precision('medium') #try with 4090
 
 # https://github.com/PyTorchLightning/pytorch-lightning/issues/10182
 # turning off the warnings:
@@ -45,7 +46,9 @@ class ds:
         self.dag = igraph.Graph.Adjacency(self.adj_mat)
 
 has_gpu = torch.cuda.is_available()
-gpu_kwargs = {'gpus': torch.cuda.device_count()} if has_gpu else {}
+#gpu_kwargs = {'gpus': torch.cuda.device_count()} if has_gpu else {}
+
+gpu_kwargs = {}
 
 class CGANSupervisedClassifier(pl.LightningModule):
     def __init__(self, lr, d_n, s_i, input_dim,dn_log):
@@ -342,11 +345,11 @@ if __name__ == '__main__':
                                 check_val_every_n_epoch=1,
                                 max_epochs=args.n_iterations,
                                 callbacks=[max_pf_checkpoint_callback,estop_cb],
-                                reload_dataloaders_every_epoch=True,
+                                #reload_dataloaders_every_epoch=True,
                                 deterministic=True,
                                 logger=tb_logger,
-                                progress_bar_refresh_rate=1,
-                                weights_summary=None,
+                                #progress_bar_refresh_rate=1,
+                                #weights_summary=None,
                                 **gpu_kwargs)
 
 
@@ -385,7 +388,10 @@ if __name__ == '__main__':
             ssld_orig = CGANSupervisedDataModule(orig_data,
                                                 synth_dd,
                                                 inclusions='orig_only',
-                                                batch_size=args.tot_bsize)
+                                                batch_size=args.tot_bsize) #actually just do tot_bsize cos same as orig, otherwise too slow 23_11_2023 AM
+                                                
+                                                #batch_size=32) #32 to keep same as orig for small datasets, 23_11_2023 AM
+                                                #batch_size=args.tot_bsize)
 
             # before we start training, we have to delete old saved models
             clear_saved_models(model_name, save_dir=dspec.save_folder, s_i=s_i)
@@ -397,7 +403,7 @@ if __name__ == '__main__':
             cgan_fn = '{0}/saved_models/{2}-s_i={1}-*.ckpt'.format(dspec.save_folder, s_i,model_name)
             optimal_model_path=glob.glob(cgan_fn)[0]
             #set_trace()
-            cgan_classifier=cgan_classifier.load_from_checkpoint(optimal_model_path)
+            cgan_classifier=type(cgan_classifier).load_from_checkpoint(optimal_model_path)
 
             cgan_saved = glob.glob(cgan_fn)[0]
             cgan_saved = cgan_saved.split('.ckpt')[0][-4:]
@@ -411,11 +417,12 @@ if __name__ == '__main__':
                                 check_val_every_n_epoch=1,
                                 max_epochs=args.n_iterations,
                                 callbacks=[max_pf_checkpoint_callback,estop_cb],
-                                reload_dataloaders_every_epoch=True,
+                                #reload_dataloaders_every_epoch=True,
+                                reload_dataloaders_every_n_epochs=1,
                                 logger=tb_logger,
                                 deterministic=True,
-                                progress_bar_refresh_rate=1,
-                                weights_summary=None,
+                                #progress_bar_refresh_rate=1,
+                                #weights_summary=None,
                                 **gpu_kwargs)
 
             ssld_synth = CGANSupervisedDataModule(orig_data,
@@ -435,7 +442,7 @@ if __name__ == '__main__':
             #set_trace()
             candidate_models = glob.glob(model_to_search_for)
 
-            current_model = current_model.load_from_checkpoint(checkpoint_path=candidate_models[0])
+            current_model = type(current_model).load_from_checkpoint(checkpoint_path=candidate_models[0])
             # store optimal model
 
             # get the data for validation
@@ -444,11 +451,11 @@ if __name__ == '__main__':
 
             try:
                 print('pausing here')
-                optimal_pred = optimal_model.forward(val_features)
-                optimal_acc = get_accuracy(optimal_pred, val_lab)
+                optimal_pred = optimal_model.forward(val_features.cuda())
+                optimal_acc = get_accuracy(optimal_pred, val_lab.cuda())
 
-                current_pred = current_model.forward(val_features)
-                current_acc = get_accuracy(current_pred, val_lab)
+                current_pred = current_model.forward(val_features.cuda())
+                current_acc = get_accuracy(current_pred, val_lab.cuda())
 
                 if current_acc > optimal_acc:
                     optimal_model = copy.deepcopy(current_model)
@@ -486,8 +493,8 @@ if __name__ == '__main__':
                                                                                     max(optimal_trainer.model.val_accs))
         optimal_trainer.save_checkpoint(filepath)
 
-        test_acc = optimal_model.predict_test(orig_data['test_features'], orig_data['test_y'].flatten())
-        unlabel_acc = optimal_model.predict_test(orig_data['unlabel_features'], orig_data['unlabel_y'].flatten())
+        test_acc = optimal_model.predict_test(orig_data['test_features'].cuda(), orig_data['test_y'].flatten().cuda())
+        unlabel_acc = optimal_model.predict_test(orig_data['unlabel_features'].cuda(), orig_data['unlabel_y'].flatten().cuda())
 
         test_acc = np.array([test_acc.cpu().detach().item()])
         filepath = "{0}/saved_models/{1}-s_i={2}_test_acc.out".format(SAVE_FOLDER, model_name,

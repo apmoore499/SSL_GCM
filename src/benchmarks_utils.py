@@ -29,7 +29,25 @@ from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import numpy as np
 import sys
-sys.path.append('./py/generative_models/')
+
+
+import sys
+
+import sys
+import os
+
+# Get the directory containing the current script/module using __file__
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Add the script's directory to sys.path
+sys.path.append(script_dir)
+
+
+
+sys.path.append(f'{script_dir}/generative_models/')
+
+
+#print(sys.path)
 from benchmarks_cgan import load_dsc, manipulate_dsc, load_real_data_legacy
 
 # determinstic seeding for pytorch lightning model training
@@ -935,6 +953,7 @@ def get_dspec(d_n):
 
 
 
+from typing import IO, Any, Dict, Iterable, Optional, Union, cast
 
 
 # combine synthetic data w original labelled data
