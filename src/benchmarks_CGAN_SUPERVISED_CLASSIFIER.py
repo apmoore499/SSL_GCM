@@ -468,7 +468,7 @@ if __name__ == '__main__':
             try:
                 print('pausing here')
                 with torch.no_grad():
-                    optimal_pred = cgan_classifier.forward(val_features)#.cuda())
+                    optimal_pred = optimal_model.forward(val_features)#.cuda())
                 optimal_acc = get_accuracy(optimal_pred, val_lab)#.cuda())
                 with torch.no_grad():
                     current_pred = current_model.forward(val_features)#.cuda())

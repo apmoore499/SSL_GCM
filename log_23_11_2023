@@ -19,5 +19,13 @@ n_workers=0, too slow aborted
 
 
 
-so if we can get 1.48 minute for every run, that is 148 minutes which is less than 3 hours. for 1 dataset. over all datasets. slow. 
+so if we can get 1.48 minute for every run, that is 148 minutes which is less than 3 hours. for 1 dataset. over all datasets. slow. but the outcome seems to be variable. 
+
+
+
+it seems that using:
+
+torch.set_float32_matmul_precision('medium') 
+
+doesn't change accuracy. is slightly higher for 'medium' setting than none. gumbel method with 'medium' is more accurate compared to psup baseline.
 

@@ -256,15 +256,15 @@ if __name__ == '__main__':
         # make generator for X
         curmod = 0
         gen_x = Generator_X1(args.lr,
-                             args.d_n,
-                             s_i,
-                             dspec.dn_log,
-                             input_dim=dsc.feature_dim*len(cause_spouse_v_idx),
-                             median_pwd=median_pwd,
-                             num_hidden_layer=args.nhidden_layer,
-                             middle_layer_size=args.n_neuron_hidden,
-                             label_batch_size=args.lab_bsize,
-                             unlabel_batch_size=args.tot_bsize)
+                                args.d_n,
+                                s_i,
+                                dspec.dn_log,
+                                input_dim=dsc.feature_dim*len(cause_spouse_v_idx),
+                                median_pwd=median_pwd,
+                                num_hidden_layer=args.nhidden_layer,
+                                middle_layer_size=args.n_neuron_hidden,
+                                label_batch_size=args.lab_bsize,
+                                unlabel_batch_size=args.tot_bsize)
 
         tloader = SSLDataModule_Unlabel_X(dsc.merge_dat, target_x=cur_x_lab, batch_size=args.tot_bsize)
 

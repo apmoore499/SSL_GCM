@@ -24,7 +24,9 @@ import torch
 import torch.distributions as D
 from torch.utils.data import DataLoader
 from typing import Optional
-has_gpu=False
+
+torch.set_float32_matmul_precision('medium') #try with 4090
+
 
 class PartialSupervisedClassifier(pl.LightningModule):
     def __init__(self, lr, d_n, s_i, input_dim,dn_log,output_dim,tot_bsize=None,best_value=None):
@@ -134,12 +136,14 @@ class SSLDataModule(pl.LightningDataModule):
         return (self)
 
     def train_dataloader(self):
+        has_gpu=torch.cuda.is_available()
         if has_gpu:
             return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True, pin_memory=True,num_workers=4)
         else:
             return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
+        has_gpu=torch.cuda.is_available()
 
         if has_gpu:
             return DataLoader(self.data_validation, batch_size=self.nval, pin_memory=True,num_workers=4)
@@ -178,6 +182,7 @@ if __name__ == '__main__':
     dspec = dspec.loc[args.d_n]  # use this as reerence..
     dspec.d_n = str(args.d_n) if dspec.d_n_type == 'str' else int(args.d_n)
     # GPU preamble
+    
     has_gpu = torch.cuda.is_available()
 
     # now we want to read in dataset_si
