@@ -2,7 +2,7 @@
 
 import sys
 sys.path.append('..')
-sys.path.append('../py/')
+sys.path.append('../src/')
 
 from benchmarks_utils import *
 import glob
@@ -109,7 +109,7 @@ def copy_legend_rename(results_df):
 if __name__=='__main__':
     # get dataspec, read in as dictionary
     # this is the master dictionary database for parsing different datasets / misc modifications etc
-    master_spec=pd.read_excel('combined_spec.xls',sheet_name=None)
+    master_spec=pd.read_excel('/media/krillman/240GB_DATA/codes2/SSL_GCM/combined_spec.xls',sheet_name=None)
     dspec=master_spec['dataset_spec'] #write dataset spec shorthand
     dspec.set_index("d_n",inplace=True) #set idx for easier
     # all datasets
@@ -118,6 +118,27 @@ if __name__=='__main__':
     ds_idx=[d for d in [36]]#range(23,37)]
     candidate_names=['n{0}_gaussian'.format(k) for k in ds_idx]
     rel_dn=np.array([n for n in all_dn if np.any([c in n for c in candidate_names])])
+    
+    
+    #remove '_10000' and '_100000'
+    
+    key_10000='_10000'
+    key_100000='_100000'
+    
+    rel_dn_base=[]
+    rel_dn_10000=[]
+    rel_dn_100000=[]
+    
+    for r in rel_dn:
+        if r.endswith(key_10000):
+            rel_dn_10000.append(r)
+        if r.endswith(key_100000):
+            rel_dn_100000.append(r)
+        else:
+            rel_dn_base.append(r)
+
+
+    rel_dn=rel_dn_base
 
     for k in ds_idx:
         gaussian_results_dict[k]={'group':[f for f in rel_dn if 'n{0}_gaussian'.format(k) in f],
@@ -148,7 +169,7 @@ if __name__=='__main__':
             model_accs[current_model]=vaccs
         ma_df=pd.DataFrame(model_accs)
         ma_df.set_index(['s_i'],inplace=True)
-        ma_df.to_csv('outputs/raw_results_dn_ulab{0}.csv'.format(d_n))
+        ma_df.to_csv('/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/raw_results_dn_ulab{0}.csv'.format(d_n))
         md=ma_df
         c_all=[c for c in md.columns]
         mc=copy.deepcopy(md) #deep copy of it
@@ -163,7 +184,7 @@ if __name__=='__main__':
 
     print('pausing here')
 
-    writer = pd.ExcelWriter('outputs/collated_results_synthetic.xlsx', engine='xlsxwriter')
+    writer = pd.ExcelWriter('/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/collated_results_synthetic.xlsx', engine='xlsxwriter')
 
     # from stack overflow: https://stackoverflow.com/questions/29463274/simulate-autofit-column-in-xslxwriter
     # for formatting column widths according to largest cell in column
@@ -196,16 +217,87 @@ if __name__=='__main__':
 
         #convert to latek table
 
-        latek_df=copy_legend_rename(ulab_df_synthetic)
+        #latek_df=copy_legend_rename(ulab_df_synthetic)
+       
+        
+        #select cases with 10000
+        
+        
+        cols=[c for c in ulab_df_synthetic]
+        
+        cols_10000=[c for c in cols if c.endswith('_10000')]
+        
+        
+        latek_df_10000=copy_legend_rename(ulab_df_synthetic[cols_10000])
+        
+        
+        
         with pd.option_context("max_colwidth", 1000):
-            latek_df.to_latex("causal_ssl_gan_paper/tables/synthetic_results/unlabelled_synthetic_results.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+            latek_df_10000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_10000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
 
 
-    #writer.save()
+
+
+        
+        cols=[c for c in ulab_df_synthetic]
+        
+        cols_5000=[c for c in cols if c.endswith('_5000')]
+        
+        
+        latek_df_5000=copy_legend_rename(ulab_df_synthetic[cols_5000])
+        
+        
+        
+        with pd.option_context("max_colwidth", 1000):
+            latek_df_5000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_5000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+
+
+
+
+
+        # cols=[c for c in test_df]
+        # cols_5000=[c for c in cols if c.endswith('_5000')]
+        # latek_df_5000=copy_legend_rename(test_df[cols_5000])
+        
+        # with pd.option_context("max_colwidth", 1000):
+        #     latek_df_5000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_10000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        cols=[c for c in ulab_df_synthetic]
+        try:
+            cols_100000=[c for c in cols if c.endswith('_100000')]
+            
+            
+            latek_df_100000=copy_legend_rename(ulab_df_synthetic[cols_100000])
+            
+            
+            
+            with pd.option_context("max_colwidth", 1000):
+                latek_df_100000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_100000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+        except:
+            continue
+        
+        
+
+        #writer.save()
 
     # get dataspec, read in as dictionary
     # this is the master dictionary database for parsing different datasets / misc modifications etc
-    master_spec = pd.read_excel('combined_spec.xls', sheet_name=None)
+    #master_spec = pd.read_excel('combined_spec.xls', sheet_name=None)
+    master_spec=pd.read_excel('/media/krillman/240GB_DATA/codes2/SSL_GCM/combined_spec.xls',sheet_name=None)
+    
     dspec = master_spec['dataset_spec']  # write dataset spec shorthand
     dspec.set_index("d_n", inplace=True)  # set idx for easier
     # all datasets
@@ -214,6 +306,9 @@ if __name__=='__main__':
     #ds_idx = [d for d in range(34, 35)]
     candidate_names = ['n{0}_gaussian'.format(k) for k in ds_idx]
     rel_dn = np.array([n for n in all_dn if np.any([c in n for c in candidate_names])])
+
+    rel_dn=rel_dn_base
+
 
     for k in ds_idx:
         gaussian_results_dict[k] = {'group': [f for f in rel_dn if 'n{0}_gaussian'.format(k) in f],
@@ -242,7 +337,7 @@ if __name__=='__main__':
             model_accs[current_model] = vaccs
         ma_df = pd.DataFrame(model_accs)
         ma_df.set_index(['s_i'], inplace=True)
-        ma_df.to_csv('outputs/raw_results_dn_ulab{0}.csv'.format(d_n))
+        ma_df.to_csv('/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/raw_results_dn_ulab{0}.csv'.format(d_n))
         md = ma_df
         c_all = [c for c in md.columns]
         mc = copy.deepcopy(md)  # deep copy of it
@@ -287,13 +382,56 @@ if __name__=='__main__':
         for i, width in enumerate(col_widths):
             writer.sheets[sname].set_column(i, i, width)
 
+
+
+
         #convert to latek table
-        latek_df=copy_legend_rename(test_df)
+        #latek_df=copy_legend_rename(test_df)
+
+
+
+        cols=[c for c in test_df]
+        cols_10000=[c for c in cols if c.endswith('_10000')]
+        latek_df_10000=copy_legend_rename(test_df[cols_10000])
+        
         with pd.option_context("max_colwidth", 1000):
-            latek_df.to_latex("causal_ssl_gan_paper/tables/synthetic_results/test_synthetic_results.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+            latek_df_10000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/test_synthetic_results_10000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
 
 
-    writer.save()
+
+
+        cols=[c for c in test_df]
+        cols_5000=[c for c in cols if c.endswith('_5000')]
+        latek_df_5000=copy_legend_rename(test_df[cols_5000])
+        
+        with pd.option_context("max_colwidth", 1000):
+            latek_df_5000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/test_synthetic_results_5000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+
+
+
+        try:
+            cols_100000=[c for c in cols if c.endswith('_100000')]
+            
+            
+            latek_df_100000=copy_legend_rename(test_df[cols_100000])
+            
+            
+            
+            with pd.option_context("max_colwidth", 1000):
+                latek_df_100000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/test_synthetic_results_100000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+        except:
+            continue
+        
+
+
+
+
+
+        # with pd.option_context("max_colwidth", 1000):
+        #     latek_df.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/test_synthetic_results.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+
+
+    writer.close()
 
     print('pausing here')
 
@@ -368,7 +506,9 @@ if __name__=='__main__':
 
    # get dataspec, read in as dictionary
     # this is the master dictionary database for parsing different datasets / misc modifications etc
-    master_spec=pd.read_excel('combined_spec.xls',sheet_name=None)
+    #master_spec=pd.read_excel('combined_spec.xls',sheet_name=None)
+    master_spec=pd.read_excel('/media/krillman/240GB_DATA/codes2/SSL_GCM/combined_spec.xls',sheet_name=None)
+    
     dspec=master_spec['dataset_spec'] #write dataset spec shorthand
     dspec.set_index("d_n",inplace=True) #set idx for easier
     # all datasets
@@ -405,7 +545,7 @@ if __name__=='__main__':
             model_accs[current_model]=vaccs
         ma_df=pd.DataFrame(model_accs)
         ma_df.set_index(['s_i'],inplace=True)
-        ma_df.to_csv('outputs/raw_results_dn_ulab{0}.csv'.format(d_n))
+        ma_df.to_csv('/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/raw_results_dn_ulab{0}.csv'.format(d_n))
         md=ma_df
         c_all=[c for c in md.columns]
         mc=copy.deepcopy(md) #deep copy of it
@@ -422,7 +562,7 @@ if __name__=='__main__':
 
 
 
-    writer = pd.ExcelWriter('outputs/collated_results_real.xlsx', engine='xlsxwriter')
+    writer = pd.ExcelWriter('/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/collated_results_real.xlsx', engine='xlsxwriter')
 
     # from stack overflow: https://stackoverflow.com/questions/29463274/simulate-autofit-column-in-xslxwriter
     # for formatting column widths according to largest cell in column
@@ -449,7 +589,7 @@ if __name__=='__main__':
 
     for i, width in enumerate(col_widths):
         writer.sheets[sname].set_column(i, i, width)
-    writer.save()
+    writer.close()
     #convert to latek table
 
     #DROP disjoint models from real results
@@ -459,7 +599,7 @@ if __name__=='__main__':
     if EXPORT_LATEK:
         latek_df=copy_legend_rename(ulab_df_real)
         with pd.option_context("max_colwidth", 1000):
-            latek_df.to_latex("causal_ssl_gan_paper/tables/real_results/unlabelled_real_results.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+            latek_df.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_real_results.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
 
 
     #set that nice index
@@ -522,6 +662,11 @@ if __name__=='__main__':
 
     #DROPPING MEK RESULTS FOR PAPER - 13_02_2023 ARCHER
 
+
+    import sys
+    #exit here cos don't need real reasults anymore..............
+    sys.exit()
+    
     all_results=all_results.drop(columns=['real_sachs_mek_log'])
 
     if EXPORT_LATEK:
@@ -532,7 +677,7 @@ if __name__=='__main__':
         fmts = dict(**fmt_bold_max)
 
         with pd.option_context("max_colwidth", 1000):
-            with open("causal_ssl_gan_paper/tables/all_combined_results.tex", "w", encoding="utf-8") as fh:
+            with open("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/all_combined_results.tex", "w", encoding="utf-8") as fh:
                 latek_df.to_latex(buf=fh,
                                   escape=False,
                                   column_format='rccccccccccc',
@@ -554,7 +699,7 @@ import json
 
 #read in these colours
 
-tex_cd_fn='causal_ssl_gan_paper/model_colours.tex'
+tex_cd_fn='/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/model_colours.tex'
 
 with open(tex_cd_fn,'r') as f:
     cldict={k:'#'+v for k,v in [l.replace('\definecolor{','').replace('}{HTML}{',' ').replace('}\n','').split(' ') for l in f.readlines()]}
@@ -613,7 +758,7 @@ def create_cstring_latek(model_name,hex_str):
 
 model_latek_colours=[create_cstring_latek(m,cd[m]) for m in list_of_models]
 
-with open('causal_ssl_gan_paper/model_colours.tex','w') as f:
+with open('/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/model_colours.tex','w') as f:
     model_latek_colours=[m+'\n' for m in model_latek_colours]
     f.writelines(model_latek_colours)
 

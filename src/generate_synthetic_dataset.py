@@ -1015,6 +1015,19 @@ base_synthetic_partition_spec_100000 = {
 }
 
 
+base_synthetic_partition_spec_5000 = {
+    'feat_dim': 2,
+    'n_unlabelled': 5000,
+    'n_labelled': 40,
+    'n_validation': 40,
+    'n_test': 1000,
+    'num_si': 100,
+    'dgen_func': DAG_dset_t36,
+    'experiment': 36_5000,
+    'experiment_addendum':'_5000',
+}
+
+
 n_to_generate_dict={
         1:100,    
         2:100,
@@ -1037,6 +1050,13 @@ n_to_generate_dict={
         5_100000:100,
         6_100000:100,
         7_100000:100,
+        1_5000:100,
+        2_5000:100,
+        3_5000:100,
+        4_5000:100,
+        5_5000:100,
+        6_5000:100,
+        7_5000:100,
         
 }
 
@@ -1061,18 +1081,26 @@ n_plots_dict={
         4_100000:2,
         5_100000:2,
         6_100000:2,
-        7_100000:2
+        7_100000:2,
+        1_5000:2,
+        2_5000:2,
+        3_5000:2,
+        4_5000:2,
+        5_5000:2,
+        6_5000:2,
+        7_5000:2,
 }
 
 dset_spec_dict={'base':base_synthetic_partition_spec,
             'base_10000':base_synthetic_partition_spec_10000,
-            'base_100000':base_synthetic_partition_spec_100000,}
+            'base_100000':base_synthetic_partition_spec_100000,
+            'base_5000':base_synthetic_partition_spec_5000,}
 
 
 
 
 #for dsk in ['base','base_10000','base_100000']:
-for dsk in ['base_100000']:
+for dsk in ['base_5000']:
     
     dset_spec=dset_spec_dict[dsk]
 

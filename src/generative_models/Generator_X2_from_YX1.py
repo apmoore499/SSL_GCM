@@ -23,6 +23,7 @@ class Generator_X2_from_YX1(pl.LightningModule):
                  n_ulab,
                  label_batch_size=4,
                  unlabel_batch_size=256,
+                 labmda_U=1.0, #lambda for unlabelled data...
                  dict_for_mmd=None):
         super().__init__()
 
@@ -48,7 +49,7 @@ class Generator_X2_from_YX1(pl.LightningModule):
         self.input_dim=input_dim
         self.output_dim=output_dim
         
-        self.automatic_optimization=False
+        #self.automatic_optimization=False
         
 
     def forward(self, z):
@@ -70,9 +71,9 @@ class Generator_X2_from_YX1(pl.LightningModule):
         #sigma_list = [self.hparams.median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]]
 
         
-        opt_lab, opt_ulab=self.optimizers()
-        opt_lab.zero_grad()
-        opt_ulab.zero_grad()
+        #opt_lab, opt_ulab=self.optimizers()
+        #opt_lab.zero_grad()
+        #opt_ulab.zero_grad()
 
 
     #def training_step(self, batch, batch_idx,optimizer_idx):
@@ -135,7 +136,7 @@ class Generator_X2_from_YX1(pl.LightningModule):
             feature_dict[target_variable]['sigma_list'] = sigma_list
                     #get labels
 
-            loss=MMD_multiple(feature_dict=feature_dict, label_dict=label_dict)
+            lab_loss=MMD_multiple(feature_dict=feature_dict, label_dict=label_dict)
 
 
             #loss=mix_rbf_mmd2_joint_regress(x_hat,
@@ -148,14 +149,14 @@ class Generator_X2_from_YX1(pl.LightningModule):
             #                                sigma_list1=sigma_list_conditional_x)
             # get batch size for balancing contrib of label / unlabel
             cbatch_size = float(z.shape[0])
-            ratio_cbatch = cbatch_size / self.hparams.n_lab
-            loss*=ratio_cbatch
+            #ratio_cbatch = cbatch_size / self.hparams.n_lab
+            #loss*=ratio_cbatch
 
-            self.log('labelled_mmd_loss', loss)
+            self.log('labelled_mmd_loss', lab_loss)
             #return(loss)
 
         else:
-            loss=mix_rbf_mmd2_joint_regress(x_hat,
+            lab_loss=mix_rbf_mmd2_joint_regress(x_hat,
                                             target_x,
                                             conditional_x,
                                             conditional_x,
@@ -165,15 +166,17 @@ class Generator_X2_from_YX1(pl.LightningModule):
                                             sigma_list1=sigma_list_conditional_x)
             # get batch size for balancing contrib of label / unlabel
             cbatch_size = float(z.shape[0])
-            ratio_cbatch = cbatch_size / self.hparams.n_lab
-            loss *= ratio_cbatch
+            #ratio_cbatch = cbatch_size / self.hparams.n_lab
+            #loss *= ratio_cbatch
 
-            self.log('labelled_mmd_loss', loss)
+            
+
+            self.log('labelled_mmd_loss', lab_loss)
             #return (loss)
             
-        loss.backward()
+        #lab_loss.backward()
         
-        opt_lab.step()
+        #opt_lab.step()
 
         #if optimizer_idx==1:
             
@@ -226,14 +229,15 @@ class Generator_X2_from_YX1(pl.LightningModule):
 
             # get batch size for balancing contrib of label / unlabel
             cbatch_size = float(z.shape[0])
-            ratio_cbatch = cbatch_size / self.hparams.n_ulab
-            loss *= ratio_cbatch
+            #ratio_cbatch = cbatch_size / self.hparams.n_ulab
+            #loss *= ratio_cbatch
+            ulab_loss *=self.hparams.labmda_U
 
-            self.log('unlabelled_mmd_loss', loss)
+            self.log('unlabelled_mmd_loss', ulab_loss)
             #return (loss)
         else:
 
-            loss=mix_rbf_mmd2_joint_regress(x_hat,
+            ulab_loss=mix_rbf_mmd2_joint_regress(x_hat,
                                             target_x,
                                             conditional_x,
                                             conditional_x,
@@ -241,30 +245,42 @@ class Generator_X2_from_YX1(pl.LightningModule):
                                             sigma_list1=sigma_list_conditional_x)
 
             # get batch size for balancing contrib of label / unlabel
-            cbatch_size = float(z.shape[0])
-            ratio_cbatch = cbatch_size / self.hparams.n_ulab
-            loss*=ratio_cbatch
+            ulab_loss *=self.hparams.labmda_U
 
-            self.log('unlabelled_mmd_loss', loss)
+            self.log('unlabelled_mmd_loss', ulab_loss)
             #return(loss)
         
                     
-        loss.backward()
+        #loss.backward()
         
-        opt_ulab.step()
+        #opt_ulab.step()
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        total_loss = lab_loss + ulab_loss
+        
+        return total_loss
 
 
 
     def configure_optimizers(self):
-        self.opt_lab = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
-        self.opt_ulab = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
-        return self.opt_lab, self.opt_ulab
+        #try with just single optimiser. having two optimiser doesn't make sense.
+        #self.opt_lab = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
+        #self.opt_ulab = torch.optim.Adam(self.gen.parameters(), lr=self.hparams.lr)
+        
+        optimizer = torch.optim.Adam(self.gen.parameters(),lr=self.hparams.lr)
+        
+        return optimizer
 
     def validation_step(self, batch, batch_idx):
         
-        
         sigma_list_target_x =  [self.hparams.median_pwd_tx * x for x in [0.125, 0.25, 0.5, 1, 2]]
-        
         sigma_list_conditional_x = [self.hparams.median_pwd_cx * x for x in [0.125, 0.25, 0.5, 1, 2]]
     
         # MMD_L (X2,Y,X1) <- Labelled
@@ -282,7 +298,6 @@ class Generator_X2_from_YX1(pl.LightningModule):
         # 950 Unlabelled <- model does not see labels for these
 
         randperm_val=torch.randperm(10000)
-        
         randperm_trans=torch.randperm(10000)
 
         # if val_feat.shape[0]>10000:
@@ -300,15 +315,16 @@ class Generator_X2_from_YX1(pl.LightningModule):
         trans_y=batch[5].squeeze(0)
 
         #set_trace()
-        if val_feat_target.shape[0]>10000:
-            val_feat_target=val_feat_target[randperm_val]
-            val_feat_cond=val_feat_cond[randperm_val]
-            val_y=val_y[randperm_val]
+        # if val_feat_target.shape[0]>10000:
+        #     #take over a sample?
+        #     val_feat_target=val_feat_target[randperm_val]
+        #     val_feat_cond=val_feat_cond[randperm_val]
+        #     val_y=val_y[randperm_val]
         
-        if trans_feat_target.shape[0]>10000:
-            trans_feat_target=trans_feat_target[randperm_trans]
-            trans_feat_cond=trans_feat_cond[randperm_trans]
-            trans_y=trans_y[randperm_trans]
+        # if trans_feat_target.shape[0]>10000:
+        #     trans_feat_target=trans_feat_target[randperm_trans]
+        #     trans_feat_cond=trans_feat_cond[randperm_trans]
+        #     trans_y=trans_y[randperm_trans]
         
         val_y_oh=val_y.float()#torch.nn.functional.one_hot(val_y)
         trans_y_oh=trans_y.float()#torch.nn.functional.one_hot(trans_y)
@@ -361,13 +377,12 @@ class Generator_X2_from_YX1(pl.LightningModule):
         
         self.vmmd_losses.append(val_mmd_loss.detach().item())
         
-        #get min one..
         
-        #print(self.vmmd_losses)
         
-
+        
+        
+        
         self.log("hp_metric", min(self.vmmd_losses))
-        #set_trace()
         print('val mmd loss: {0}'.format(val_mmd_loss))
         print('t mmd loss: {0}'.format(trans_mmd_loss))
 

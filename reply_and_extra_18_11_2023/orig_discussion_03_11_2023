@@ -1,0 +1,292 @@
+Weakness/room for improvement
+
+
+In the method section, it seems that the joint approach is more general than the disjoint approach, why is the disjoint approach still needed? Please clarify the possible advantages of the disjoint approach.
+
+- need to go over this.
+- common cause for X2, example below
+
+
+The disjoint approach is included for two reasons.
+
+First, the gumbel method is not applicable to every causal graph. In such cases, we can use the disjoint method to tackle the problem.
+
+There are two possible Markov Blankets for which we cannot use the Gumbel Method: CG2 and CG4. 
+
+In CG2, the causal graph is simply Y->XE. This instance is an established case which is well-explored by existing methods, as explained in the paper. In this instance, there is no clear reason why we would prefer the disjoint method over any other mehods. In our reslust, we include it to demonstrate the didference in SSL over CG1 vs CG2 graphs. We aim to give some intuition for the earlier discussed results that SSL is only possible in principle if there is some Y->XE.
+
+In CG4, the causal graph is Y-> XE <- XS. In this case, the gumbel method cannot give more information. We argue that the disjoint method is preferable to other baselines in this instance becasue we explicitly separate the features XS and XE. Given that SSL methods implcitly assume that all causal relationship are Y->X, one expects the SSL algorithm to learn a relationship Y->(XS,XE), or XS<-Y->XE. Y and XS are independent, so if we are implicitly using unlabelled XS to estimate P(Y|XS,XE), the convergence of the approach may become inferior to a model which considers P(Y|XE) only.  
+
+The results for CG4 are not super supportive of this..maybe provdie a counter example???
+
+
+
+
+
+
+To model the conditional distributions following a causal graph, this paper uses the MMD-based generative adversarial networks. Why choose this generative model? There are many other generative models such as GANs with neural networks as discriminator, variational autoencoders, and diffusion models.
+
+
+
+
+MMD can be used as a loss function instead of discriminator
+
+
+The advantage of using MMD instead of Discriminator in this case was the following:
+
+- MMD is easy to train. Quadratic-time with efficient approximations, stable
+
+- Dscriminator in GAN leads to saddle point, inherently unstable
+
+Our use case is g eneral purpose data. Maybe if we were donig images we would appeal to some establisehed GANS like stylegan and so on. In general, if there is a pretrained dissciminator on a data domain of interest (images, audio, etc), it may imrpvoe results using tthe weights and fine-tuning. But for our use case, our data is not images. Given the success of our results, we didn't feel it necessary to try using discriminator. It may be possible to get a better result but one shouodl suspect MMD is nmore stable, and the main goal o four paper was to simply illustrate the potentil for using expanded causal structures in SSL.
+
+
+
+
+Diffusion models typically are useful for high-dimensional data.
+
+
+VAE - need to implement.
+
+
+
+MMD takes place of discirminator in this approach. diffusion is  more recent approach we didn't look at.
+
+MMD is easier to train
+
+Diffusion juyst for image, higher dimensional
+
+Here, if we decompose hte dist according to graph, decomposition is low dimensional, MMD based methods should be good enough.
+
+
+can use VAE for modules if we want
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+The proposed approach considers different scenarios. In practice, how can one quickly which scenario a given dataset belong to?
+
+
+
+
+if we know causal structure only - shortcoming of method is that we need causal strcuture. causal discovery is a separate problem.
+
+- using causal markov condition, we decompose the graph easily.
+
+- in many domains, there is expert knowledge to constrjuct hte graph. we could use this instead of/ in addition to causla discovery
+
+
+
+Causal markov, strong assumptoin
+
+If I understand correctly, the proposed method requires the causal structure to be fully known. In practice, one may only get a dataset, how can one get the causal structure as well?
+
+
+- we used fges-mb model in the paper to get the cauasl structure (in appendix), for real world dataset breast cancer
+
+- don't necessariyl need to know the full DAG , we can condition on all common causes
+
+
+
+
+
+Some very related references should be included in the revision, i.e. "Semisupervised Feature Analysis by Mining Correlations Among Multiple Tasks" and "Adaptive Semi-Supervised Feature Selection for Cross-Modal Retrieval".
+
+- put in new simulations here
+
+"Adaptive Semi-Supervised Feature Selection for Cross-Modal Retrieval". demonstrates compelling results. 
+
+Specifically have tried with two feature variables. COnsidering how to use three features. Ther are some erros in their paper / algorithm. I think I have figured out the imstakes  in the notation in their paper
+
+
+Try to tune with ray tuner, unclear if there is a best set of hyperparmeters for entire model. performance seeems comparable to our methods (need to summarise)
+
+Very quick to converge, typically in 1-2 iteration. Leave for longer results become unstable.
+
+
+
+Problem: set sigma? to median pairwise distance?
+
+Also mapping matrices: projection onto 2dim subspace. If we use X in R^{4}, mapping is not symmetric matrix, so how can we initialise it? it says in their code that initialise mapping to identity. but we cna't do this if not symmetric?
+
+model maybe too simple for our use case
+
+typically it's for cases where they want to identify multiple features. like multi labels in images.  each subtask is to identify a single feature.  ie 'dog' 'sun' 'grass' 'walking' could all be features of some image of a person in a park with their dog.
+
+
+adapt it by simply using d=2 for the common latent subspace (sugested by earlier work they reference) and using softmax to convert to prob...softmax not technical;ly needed, we just take max value.
+
+
+Use same emthod: predict on val, select run with best val acc, then predict on unlabeleld partition. rrport the predictio on unalbeleld partition. try 10 runs, add some noise to inital matrices to see if pertuyrb final result. but it's stable.
+
+
+
+
+- summarise results into table []
+
+
+
+Semisupervised Feature Analysis by Mining Correlations Among Multiple Tasks
+
+in middle of writing algorithm
+
+unclear on their notation but looked at previous reference to double check. i will continue work on algo today and see if it works.  results should be quick like the first paper. I am concerned that the laplacian matrix I don't have correct formulation, but easy to debug once whole algo done.
+
+
+
+
+
+#---------
+
+2nd reviewer
+
+
+There are several point I would like to see addressed, which I hope would help make the paper even more valuable. The causal structure is assumed to be known throughout the work. I think this is a fair assumption. However, it would still be interesting to see some results based on a learned causal structure (e.g., using a method such as NOTEARS [1]).
+
+- more simulations using this method.
+- it should be noted that causal discovery methods were aplied to real world datasets, and most did not converge.
+- TETRAD, using FGES-MB algorithm on datast 2, Breast Cancer
+
+
+
+- For SACHS cell flow cytometry dataset, causal structure is given. we konw ground truth.
+- try to use NOTEARS to learn causal structure for both datasets and see how models perform []
+
+
+https://github.com/xunzheng/notears
+
+
+- Tried Notears L:inear and Nonlinear on Breast Cancer
+
+- No good results. We get some DAG but nothing on diagnosis variable
+
+
+- Next will try Nonlinear on Breaste cancer and try to tune the hyperparemters - is this likely to work? [] time
+
+
+
+
+
+I have some remarks regarding the empirical results. First, all experiments are conducted with a 3-layer MLP with a hidden layer size of 100. Should this not be tuned for each data set? Especially given the small data set sizes? Related to this, I would be interested to see how the different methods perform with more data.
+
+
+
+
+- some tuning was performed, 
+
+- larger dataset
+
+- see whether we need to tune MLP
+
+
+- for data, not hjard to make more data
+
+- synthesise more examples. currently we use ~2000 examples, 50 labelled.
+
+
+- 10,000 unlabelled, 50 labelled
+
+- 100,000 unlabeled, 50 labelled
+
+- number of labels could try 50 or less. if we have too many labels, ssl not necessary. 
+
+
+
+
+
+
+
+TODO:
+
+- maybe can just increase number of unlabelled data, this is easy to do. try with two more 10,000 and 100,000 []
+
+- just compare performance simply, like 50,100,200 neurons to see if signifncant change. from memory 100 was best perofmrance. but do experiemnts with differnt neurons and illustrate whether it's better or worse. []
+
+
+
+- did 10000 with batch size 256, no other tuning. VAT works well. disjoint poorly performs. disjoint algo weights loss terms equally for labelled nad unlableld data. maybe not best approach in this context. how to set weighting?
+
+- gumel takes aages, need to optimise code, MMD calls and so on. 
+
+
+- other methods apart from VAT don't work well. 
+
+
+
+100,000 unlabeleld is too much, it takes too long.
+
+
+try instead:
+
+
+10,000 and 50 labelled
+
+
+10,000 and 20 labeleld?
+2,000 and 20 labelled?
+5000 and 50 labelled?
+5000 and 20 labeleld?
+
+40,000 and 40 labeleld? anyting over 10,000 seem to take ages
+
+there's lots more experiment. can we just do a few others?  
+
+
+
+
+
+
+
+
+Finally, I was wondering whether the authors could add some more insights on the performance of GCGAN-SSL compared to CGAN-SSL. When does one outperform the other? 
+
+
+- when there is join dependence between x1->X2 in graph x1->y->x2
+
+
+Does this depend on the causal structure of the data? The authors state that "the joint Gumbel-Softmax method GCGAN-SSL seems able to exploit information in unlabelled data more effectively ...". Why does this not holld for the real data sets?
+
+
+- AUPRC plot could be insightful. we can identify cases where gumbel method is superior, compare wtih disjsoint method directly.s. interesting to see if it's at decision boundary or towards more certian prediction of class.
+
+
+
+
+
+- latent confounders?
+
+- think more about this.
+
+[1] Zheng, X., Aragam, B., Ravikumar, P. K., & Xing, E. P. (2018). Dags with no tears: Continuous optimization for structure learning. Advances in neural information processing systems, 31.
+
+
+
+
+
+
+
+
+
+
+
+
+
+

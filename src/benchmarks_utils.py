@@ -90,6 +90,7 @@ rng = np.random.default_rng(12345)  #initialise numpy random number generator ob
 
 #string to boolean
 def str_to_bool(in_str):
+    print(in_str)
     if in_str=='True':
         return(True)
     if in_str=='False':
@@ -157,6 +158,19 @@ def get_gpu_kwargs(args):
 
 #returns standard net architecture
 #change to wider shape based on discussion w HJ/MMG 23_02_2022
+# def get_standard_net(input_dim,output_dim):
+#     net = nn.Sequential(
+#         nn.Linear(input_dim, 100),
+#         nn.ReLU(),
+#         nn.Linear(100, 100),
+#         nn.ReLU(),
+#         nn.Linear(100, 5),
+#         nn.ReLU(),
+#         nn.Linear(5, output_dim)
+#     )
+#     return(net)
+
+
 def get_standard_net(input_dim,output_dim):
     net = nn.Sequential(
         nn.Linear(input_dim, 100),
@@ -166,6 +180,7 @@ def get_standard_net(input_dim,output_dim):
         nn.Linear(5, output_dim)
     )
     return(net)
+
 
 #returns wide net architecture. note: this is now default as standard net
 def get_wide_net(input_dim,output_dim):
@@ -311,7 +326,7 @@ def get_default_trainer(args, tb_logger, callbacks,deterministic_flag=False,min_
                          callbacks=callbacks,
                          deterministic=deterministic_flag,
                          #reload_dataloaders_every_epoch=True,
-                         reload_dataloaders_every_n_epochs=1,
+                         #reload_dataloaders_every_n_epochs=1,
                          logger=tb_logger,
                          min_epochs=min_epochs,
                          accelerator='gpu',
@@ -327,16 +342,49 @@ def get_default_trainer(args, tb_logger, callbacks,deterministic_flag=False,min_
                                 #profiler=profiler_simple_first,
                                 #**gpu_kwargs)
 
+
+
+def get_trainer_psup(args, tb_logger, callbacks,deterministic_flag=False,min_epochs=0,**gpu_kwargs):
+    trainer = pl.Trainer(log_every_n_steps=1,
+                         check_val_every_n_epoch=1,
+                         max_epochs=args.n_iterations,
+                         callbacks=callbacks,
+                         deterministic=deterministic_flag,
+                         #reload_dataloaders_every_epoch=True,
+                         #reload_dataloaders_every_n_epochs=1, #turn off reload every...
+                         logger=tb_logger,
+                         min_epochs=min_epochs,
+                         accelerator='gpu',
+                         devices=1,
+                         enable_progress_bar=True,#progress_bar_refresh_rate=1,
+                         #weights_summary=None,
+                         **gpu_kwargs)
+    return (trainer)
+
+                                #deterministic=True,
+                                #logger=tb_logger,
+
+                                #profiler=profiler_simple_first,
+                                #**gpu_kwargs)
+
+from IPython.core.debugger import set_trace
+
+
 #-----------------------------------
 #     LOADING OPTIMAL MODEL
 #-----------------------------------
 
 def load_optimal_model(dspec, current_model):
     # load optimal model
-    model_to_search_for = dspec.save_folder + '/saved_models/' + current_model.model_name + "*-s_i={0}-epoch*".format(
-        current_model.hparams['s_i'])
+    #set_trace()
+    model_to_search_for = dspec.save_folder + '/saved_models/' + current_model.model_name + "*-s_i={0}-epoch*".format(current_model.hparams['s_i'])
     candidate_models = glob.glob(model_to_search_for)
     #assert(len(candidate_models)==1)
+    #set_trace()
+    print(f'loading optimal for {current_model.model_name}')
+    print(candidate_models)
+    
+    print(len(candidate_models))
     current_model = type(current_model).load_from_checkpoint(checkpoint_path=candidate_models[0])
     return (current_model)
 
@@ -347,22 +395,26 @@ def load_optimal_model(dspec, current_model):
 def return_optimal_model(current_model, trainer, optimal_model,optimal_trainer,val_features,val_lab,metric='val_acc'):
     if optimal_model == None:
         print('optimal model created')
-        return(current_model,trainer)
+        return(current_model,trainer,-1.0) #put -1.0 as dummy value for optimal_acc..should at least be > 0.0
     else:
         optimal_model.eval()
         current_model.eval()
 
-        optimal_pred = optimal_model.forward(val_features)
-        optimal_acc = get_accuracy(optimal_pred, val_lab)
+        #set_trace()
+        
+        
+        with torch.no_grad():
+            optimal_pred = optimal_model.forward(val_features)
+            optimal_acc = get_accuracy(optimal_pred, val_lab[:,1].flatten())
 
-        current_pred = current_model.forward(val_features)
-        current_acc = get_accuracy(current_pred, val_lab)
+            current_pred = current_model.forward(val_features)
+            current_acc = get_accuracy(current_pred, val_lab[:,1].flatten())
 
-        optimal_pred = optimal_model.forward(val_features)
-        optimal_bce = get_bce_w_logit(optimal_pred, torch.nn.functional.one_hot(val_lab).float())
+            optimal_pred = optimal_model.forward(val_features)
+            optimal_bce = get_bce_w_logit(optimal_pred, val_lab)#torch.nn.functional.one_hot(val_lab).float())
 
-        current_pred = current_model.forward(val_features)
-        current_bce = get_bce_w_logit(current_pred, torch.nn.functional.one_hot(val_lab).float())
+            current_pred = current_model.forward(val_features)
+            current_bce = get_bce_w_logit(current_pred, val_lab)
 
         if ((current_acc > optimal_acc) and metric=='val_acc') or ((current_bce > optimal_bce) and metric=='val_bce'):
             optimal_model = current_model
@@ -376,7 +428,7 @@ def return_optimal_model(current_model, trainer, optimal_model,optimal_trainer,v
             print('old optimal: {0}'.format(optimal_acc))
             print('new optimal: {0}'.format(current_acc))
 
-        return (optimal_model, optimal_trainer)
+        return (optimal_model, optimal_trainer,optimal_acc)
 
 #-----------------------------------
 #     MODEL EVALUATION
@@ -391,10 +443,10 @@ def evaluate_on_test_and_unlabel(dspec, args, si_iter,current_model,optimal_mode
 
     optimal_model.eval()
     
-    test_features=torch.tensor(orig_data['test_features'],device='cuda')
-    test_y=torch.tensor(orig_data['test_y'],device='cuda')
-    ulab_features=torch.tensor(orig_data['unlabel_features'],device='cuda')
-    ulab_y=torch.tensor(orig_data['unlabel_y'],device='cuda')
+    test_features=torch.tensor(orig_data['test_features'],device='cuda').float()
+    test_y=torch.tensor(orig_data['test_y'],device='cuda').float()
+    ulab_features=torch.tensor(orig_data['unlabel_features'],device='cuda').float()
+    ulab_y=torch.tensor(orig_data['unlabel_y'],device='cuda').float()
 
     with torch.no_grad():
 
@@ -1013,9 +1065,65 @@ class CGANSupervisedDataModule(pl.LightningDataModule):
 
         #print(self.inclusions)
         if self.inclusions == 'orig_and_synthetic':
-            X_train_total = torch.cat((X_train_lab, X_train_synthetic), 0)
-            y_train_total = torch.cat((y_train_lab.flatten(), y_train_synthetic.flatten()), 0).reshape((-1,1))
+            #X_train_total = torch.cat((X_train_lab, X_train_synthetic), 0)
+            #y_train_total = torch.cat((y_train_lab.flatten(), y_train_synthetic.flatten()), 0).reshape((-1,1))
+            
 
+            
+            n_unlabelled = X_train_ulab.shape[0]
+            n_labelled = X_train_lab.shape[0]
+            dummy_label_weights = torch.ones(n_labelled)
+
+            
+            if self.n_to_sample_for_orig=='labelled':
+                num_samples=n_labelled
+            
+            elif self.n_to_sample_for_orig=='unlabelled':
+                num_samples=n_unlabelled
+                
+            elif self.n_to_sample_for_orig=='baseline':
+                num_samples=2000 #keep in line with original datsets
+                
+            
+            resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
+            X_train_lab_rs = X_train_lab[resampled_i]
+            y_train_lab_rs = y_train_lab[resampled_i]
+
+
+            X_train_total = X_train_lab_rs
+            y_train_total = y_train_lab_rs
+            
+            
+            
+            #select a smaller subset of the synthetic data to train on, like 10,000 synthetic....
+            
+            
+            # N_SYNTHETIC=5000
+            
+            # sel_i=torch.randperm(X_train_synthetic.shape[0])[:N_SYNTHETIC]
+            
+            # N_LAB=5000
+            # sel_il=torch.randperm(X_train_total.shape[0])[:N_LAB]
+            
+            
+            # X_train_total = torch.cat((X_train_total[sel_i], X_train_synthetic[sel_i]), 0)
+            # y_train_total = torch.cat((y_train_total[sel_i].flatten(), y_train_synthetic[sel_i].flatten()), 0).reshape((-1,1))
+            
+            
+            # N_SYNTHETIC=5000
+            
+            # sel_i=torch.randperm(X_train_synthetic.shape[0])[:N_SYNTHETIC]
+            
+            # N_LAB=5000
+            # sel_il=torch.randperm(X_train_total.shape[0])[:N_LAB]
+            
+            
+            X_train_total = torch.cat((X_train_total, X_train_synthetic), 0)
+            y_train_total = torch.cat((y_train_total.flatten(), y_train_synthetic.flatten()), 0).reshape((-1,1))
+            
+            
+            
+        
 
         elif self.inclusions=='orig_only':
 
@@ -1073,14 +1181,14 @@ class CGANSupervisedDataModule(pl.LightningDataModule):
     def train_dataloader(self):
         has_gpu=torch.cuda.is_available()
         if has_gpu:
-            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True, pin_memory=True,num_workers=4)
+            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True, pin_memory=True,num_workers=4,persistent_workers=True) #nb change thise
         else:
             return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
         has_gpu=torch.cuda.is_available()
         if has_gpu:
-            return DataLoader(self.data_validation, batch_size=self.nval, pin_memory=True,num_workers=4)
+            return DataLoader(self.data_validation, batch_size=self.nval, pin_memory=True, num_workers=4,persistent_workers=True) #nb change thise
         else:
             return DataLoader(self.data_validation, batch_size=self.nval)
 

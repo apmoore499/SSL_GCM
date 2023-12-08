@@ -8,7 +8,7 @@ import pickle
 import igraph
 
 n_classes = 2
-torch.set_float32_matmul_precision('medium') #try with 4090
+torch.set_float32_matmul_precision('high') #try with 4090
 
 # https://github.com/PyTorchLightning/pytorch-lightning/issues/10182
 # turning off the warnings:
@@ -330,14 +330,110 @@ if __name__ == '__main__':
 
 
 
+        #DeepSpeed ZeRO Stage 3 Offload
+        #https://pytorch-lightning.readthedocs.io/en/1.3.8/advanced/advanced_gpu.html#deepspeed-zero-stage-3-offload
+        
+        
+        
+    
+    
+    
+    
+    
+    
+    # from pytorch_lightning import Trainer
+    # from pytorch_lightning.plugins import DeepSpeedPlugin
 
+    # # Enable CPU Offloading
+    # model = MyModel()
+    # trainer = Trainer(gpus=4, plugins='deepspeed_stage_3_offload', precision=16)
+    # trainer.fit(model)
+
+    # # Enable CPU Offloading, and offload parameters to CPU
+    # model = MyModel()
+    # trainer = Trainer(
+    #     gpus=4,
+    #     plugins=DeepSpeedPlugin(stage=3, cpu_offload=True, cpu_offload_params=True),
+    #     precision=16
+    # )
+    # trainer.fit(model)
+            
+            
+            
+            
+    
+    
+
+        # now load in synthetic data
+        n_zeros=synthetic_data[synthetic_data[feature_labels[0]]==0].shape[0]
+        n_ones=synthetic_data[synthetic_data[feature_labels[0]]==1].shape[0]
+        
+        
+        
+        if n_zeros==0 or n_ones==1:
+            print('pausing zero case of 0 1')
+        if args.nsamps>n_zeros and args.nsamps>n_ones:
+            args.nsamps=min(n_zeros,n_ones)
+            #synth_c0 = synthetic_data[synthetic_data[feature_labels[0]] == 0].sample(args.nsamps) #why are thee samples balanced? this is an error they should not be balanced cos not always 0.5
+            #synth_c1 = synthetic_data[synthetic_data[feature_labels[0]] == 1].sample(args.nsamps)
+            
+            synth_c0 = synthetic_data[synthetic_data[feature_labels[0]] == 0].sample(3000)
+            synth_c1 = synthetic_data[synthetic_data[feature_labels[0]] == 1].sample(3000)
+
+            synthetic_data = pd.concat((synth_c0, synth_c1), 0, ignore_index=True)
+        elif args.nsamps==-1: # -1 flag is for when you use ALL of the data
+            synthetic_data=synthetic_data # we just do this instead
+
+
+        synth_dd = {}
+
+        if dspec.feature_dim==1:
+            #rename...
+            scols=[c for c in synthetic_data.columns]
+            ncols=[]
+            for s in scols:
+                n_name=s
+                if s[0]=='X' and '_' not in s:
+                    n_name=s+'_0'
+                ncols.append(n_name)
+            synthetic_data.columns=ncols
+
+        #select feature / label vars respectively. this will also reorder the data.
+        synth_dd['synthetic_features'] = torch.Tensor(synthetic_data[feature_variables].to_numpy(dtype=np.float32))
+        synth_dd['synthetic_y'] = torch.Tensor(synthetic_data[feature_labels[0]].to_numpy(dtype=np.float32))
+
+        ssld_orig = CGANSupervisedDataModule(orig_data,
+                                            synth_dd,
+                                            inclusions='orig_only',
+                                            n_to_sample_for_orig='unlabelled', #unlabelled, labelled, baseline. baseline=2000 as per original synthetic data. unlabelled=as many as in this unlabelled data. so like 100,000 if so. labelled=just labelled cases ~ 40 cases.
+                                            batch_size=args.tot_bsize) #actually just do tot_bsize cos same as orig, otherwise too slow 23_11_2023 AM
+                                            
+                                            #batch_size=32) #32 to keep same as orig for small datasets, 23_11_2023 AM
+                                            #batch_size=args.tot_bsize)
+
+        ssld_synth = CGANSupervisedDataModule(orig_data,
+                                            synth_dd,
+                                            inclusions='orig_and_synthetic',
+                                            batch_size=args.tot_bsize)  
+    
+    
+        ssld_orig.setup()
+        ssld_synth.setup()
+
+
+
+        cgan_classifier = CGANSupervisedClassifier(lr=args.lr, d_n=args.d_n, s_i=s_i,
+                                                input_dim=dspec.input_dim,dn_log=dspec.dn_log)  # define model
+
+        #cgan_classifier=torch.compile(cgan_classifier,fullgraph=True,backend='reduce-overhead')
+        
 
         results_list = []
         for t in range(args.n_trials):
-            cgan_classifier = CGANSupervisedClassifier(lr=args.lr, d_n=args.d_n, s_i=s_i,
-                                                    input_dim=dspec.input_dim,dn_log=dspec.dn_log)  # define model
-
+            
+            
             cgan_classifier.apply(init_weights_he_kaiming)
+
 
             max_pf_checkpoint_callback = return_chkpt_max_val_acc(model_name, dspec.save_folder)  # returns max checkpoint
             estop_cb = return_estop_val_acc(args.estop_patience)
@@ -352,55 +448,67 @@ if __name__ == '__main__':
                                 check_val_every_n_epoch=1,
                                 max_epochs=args.n_iterations,
                                 callbacks=[max_pf_checkpoint_callback,estop_cb],
-                                reload_dataloaders_every_n_epochs=1,
-                                deterministic=True,
+                                #reload_dataloaders_every_n_epochs=1,
+                                #deterministic=True,
                                 logger=tb_logger,
                                 accelerator='gpu',
+                                precision=16,
                                 devices=1,
                                 #profiler=profiler_simple_first,
                                 **gpu_kwargs)
 
 
-            # now load in synthetic data
-            n_zeros=synthetic_data[synthetic_data[feature_labels[0]]==0].shape[0]
-            n_ones=synthetic_data[synthetic_data[feature_labels[0]]==1].shape[0]
-            if n_zeros==0 or n_ones==1:
-                print('pausing zero case of 0 1')
-            if args.nsamps>n_zeros and args.nsamps>n_ones:
-                args.nsamps=min(n_zeros,n_ones)
-                synth_c0 = synthetic_data[synthetic_data[feature_labels[0]] == 0].sample(args.nsamps)
-                synth_c1 = synthetic_data[synthetic_data[feature_labels[0]] == 1].sample(args.nsamps)
+            # # now load in synthetic data
+            # n_zeros=synthetic_data[synthetic_data[feature_labels[0]]==0].shape[0]
+            # n_ones=synthetic_data[synthetic_data[feature_labels[0]]==1].shape[0]
+            
+            
+            
+            # if n_zeros==0 or n_ones==1:
+            #     print('pausing zero case of 0 1')
+            # if args.nsamps>n_zeros and args.nsamps>n_ones:
+            #     args.nsamps=min(n_zeros,n_ones)
+            #     #synth_c0 = synthetic_data[synthetic_data[feature_labels[0]] == 0].sample(args.nsamps) #why are thee samples balanced? this is an error they should not be balanced cos not always 0.5
+            #     #synth_c1 = synthetic_data[synthetic_data[feature_labels[0]] == 1].sample(args.nsamps)
+                
+            #     synth_c0 = synthetic_data[synthetic_data[feature_labels[0]] == 0].sample(3000)
+            #     synth_c1 = synthetic_data[synthetic_data[feature_labels[0]] == 1].sample(3000)
 
-                synthetic_data = pd.concat((synth_c0, synth_c1), 0, ignore_index=True)
-            elif args.nsamps==-1: # -1 flag is for when you use ALL of the data
-                synthetic_data=synthetic_data # we just do this instead
+            #     synthetic_data = pd.concat((synth_c0, synth_c1), 0, ignore_index=True)
+            # elif args.nsamps==-1: # -1 flag is for when you use ALL of the data
+            #     synthetic_data=synthetic_data # we just do this instead
 
 
-            synth_dd = {}
+            # synth_dd = {}
 
-            if dspec.feature_dim==1:
-                #rename...
-                scols=[c for c in synthetic_data.columns]
-                ncols=[]
-                for s in scols:
-                    n_name=s
-                    if s[0]=='X' and '_' not in s:
-                        n_name=s+'_0'
-                    ncols.append(n_name)
-                synthetic_data.columns=ncols
+            # if dspec.feature_dim==1:
+            #     #rename...
+            #     scols=[c for c in synthetic_data.columns]
+            #     ncols=[]
+            #     for s in scols:
+            #         n_name=s
+            #         if s[0]=='X' and '_' not in s:
+            #             n_name=s+'_0'
+            #         ncols.append(n_name)
+            #     synthetic_data.columns=ncols
 
-            #select feature / label vars respectively. this will also reorder the data.
-            synth_dd['synthetic_features'] = torch.Tensor(synthetic_data[feature_variables].to_numpy(dtype=np.float32))
-            synth_dd['synthetic_y'] = torch.Tensor(synthetic_data[feature_labels[0]].to_numpy(dtype=np.float32))
+            # #select feature / label vars respectively. this will also reorder the data.
+            # synth_dd['synthetic_features'] = torch.Tensor(synthetic_data[feature_variables].to_numpy(dtype=np.float32))
+            # synth_dd['synthetic_y'] = torch.Tensor(synthetic_data[feature_labels[0]].to_numpy(dtype=np.float32))
 
-            ssld_orig = CGANSupervisedDataModule(orig_data,
-                                                synth_dd,
-                                                inclusions='orig_only',
-                                                n_to_sample_for_orig='unlabelled', #unlabelled, labelled, baseline. baseline=2000 as per original synthetic data. unlabelled=as many as in this unlabelled data. so like 100,000 if so. labelled=just labelled cases ~ 40 cases.
-                                                batch_size=args.tot_bsize) #actually just do tot_bsize cos same as orig, otherwise too slow 23_11_2023 AM
+            # ssld_orig = CGANSupervisedDataModule(orig_data,
+            #                                     synth_dd,
+            #                                     inclusions='orig_only',
+            #                                     n_to_sample_for_orig='unlabelled', #unlabelled, labelled, baseline. baseline=2000 as per original synthetic data. unlabelled=as many as in this unlabelled data. so like 100,000 if so. labelled=just labelled cases ~ 40 cases.
+            #                                     batch_size=args.tot_bsize) #actually just do tot_bsize cos same as orig, otherwise too slow 23_11_2023 AM
                                                 
-                                                #batch_size=32) #32 to keep same as orig for small datasets, 23_11_2023 AM
-                                                #batch_size=args.tot_bsize)
+            #                                     #batch_size=32) #32 to keep same as orig for small datasets, 23_11_2023 AM
+            #                                     #batch_size=args.tot_bsize)
+
+            # ssld_synth = CGANSupervisedDataModule(orig_data,
+            #                                     synth_dd,
+            #                                     inclusions='orig_and_synthetic',
+            #                                     batch_size=args.tot_bsize)
 
             # before we start training, we have to delete old saved models
             clear_saved_models(model_name, save_dir=dspec.save_folder, s_i=s_i)
@@ -431,16 +539,18 @@ if __name__ == '__main__':
                                 check_val_every_n_epoch=1,
                                 max_epochs=args.n_iterations,
                                 callbacks=[max_pf_checkpoint_callback,estop_cb],
-                                reload_dataloaders_every_n_epochs=1,
+                                #reload_dataloaders_every_n_epochs=1,
                                 logger=tb_logger,
-                                deterministic=True,
+                                #deterministic=True,
+                                precision=16,
+                                accelerator='gpu',
                                 #profiler=profiler_simple_second,
                                 **gpu_kwargs)
 
-            ssld_synth = CGANSupervisedDataModule(orig_data,
-                                                synth_dd,
-                                                inclusions='orig_and_synthetic',
-                                                batch_size=args.tot_bsize)
+            # ssld_synth = CGANSupervisedDataModule(orig_data,
+            #                                     synth_dd,
+            #                                     inclusions='orig_and_synthetic',
+            #                                     batch_size=args.tot_bsize)
             trainer.fit(cgan_classifier, ssld_synth)  # train here
 
             current_model=cgan_classifier
@@ -454,7 +564,7 @@ if __name__ == '__main__':
             #set_trace()
             candidate_models = glob.glob(model_to_search_for)
 
-            current_model = type(current_model).load_from_checkpoint(checkpoint_path=candidate_models[0])
+            current_model = type(current_model).load_from_checkpoint(checkpoint_path=candidate_models[0]).cuda()
             # store optimal model
 
             # get the data for validation
@@ -490,6 +600,13 @@ if __name__ == '__main__':
                 optimal_trainer = copy.deepcopy(trainer)
                 print('optimal model created')
                 del trainer
+                
+                
+            finally:
+                
+                if t>0 and optimal_acc==1.0:
+                    
+                    break
 
             et = time.time()
 
@@ -545,10 +662,10 @@ if __name__ == '__main__':
         optimal_model.model_name=model_name
 
         # PLOT HARD DECISION BOUNDARY
-        plot_decision_boundaries_plotly(dspec, s_i, args, optimal_model, hard=True, output_html=False)
+        #plot_decision_boundaries_plotly(dspec, s_i, args, optimal_model, hard=True, output_html=False)
 
         # PLOT SOFT (CONTINUOUS) DECISION BOUNDARY
-        plot_decision_boundaries_plotly(dspec, s_i, args, optimal_model, hard=False, output_html=False)
+        #plot_decision_boundaries_plotly(dspec, s_i, args, optimal_model, hard=False, output_html=False)
 
         # DELETE OPTIMALS SO CAN RESTART IF DOING MULTIPLE S_I
         del optimal_trainer

@@ -25,9 +25,12 @@ import torch.distributions as D
 from torch.utils.data import DataLoader
 from typing import Optional
 
-torch.set_float32_matmul_precision('medium') #try with 4090
+torch.set_float32_matmul_precision('high') #try with 4090
+
+DETERMINISTIC_FLAG=False
 
 
+current_model_name='PARTIAL_SUPERVISED_CLASSIFIER'
 class PartialSupervisedClassifier(pl.LightningModule):
     def __init__(self, lr, d_n, s_i, input_dim,dn_log,output_dim,tot_bsize=None,best_value=None):
         super().__init__()
@@ -35,7 +38,7 @@ class PartialSupervisedClassifier(pl.LightningModule):
         self.classifier = get_standard_net(input_dim=input_dim, output_dim=output_dim)
         self.val_accs = []
 
-        self.model_name = 'PARTIAL_SUPERVISED_CLASSIFIER'
+        self.model_name = current_model_name
 
     def forward(self, x):
         classification = self.classifier(x)
@@ -50,9 +53,15 @@ class PartialSupervisedClassifier(pl.LightningModule):
         return (retval)  # return the value of self.forward, ie, the classification
 
     def training_step(self, batch, batch_idx):
-        x_l, y_l, x_ul = batch
+        x_l = batch[0]
+        
+        y_l = batch[1]
+        
+        #x_u = batch[2]
+        
+        
         guess_label = self.classifier(x_l)
-        loss_gl = torch.nn.functional.cross_entropy(guess_label, y_l)
+        loss_gl = torch.nn.functional.cross_entropy(guess_label.float(), y_l.float())
         loss = loss_gl
         self.log('train_loss', loss, on_step=LOG_ON_STEP, on_epoch=CHECK_ON_TRAIN_END)
         # print(loss)
@@ -66,7 +75,7 @@ class PartialSupervisedClassifier(pl.LightningModule):
         val_feat = batch[0].squeeze(0)
         val_y = batch[1].squeeze(0)
         y_hat = self.classifier(val_feat)
-        v_acc = get_accuracy(y_hat, val_y)
+        v_acc = get_accuracy(y_hat, val_y[:,1].flatten())
         loss_val_bce = torch.nn.functional.cross_entropy(y_hat, val_y)
         self.log('val_bce', loss_val_bce, on_step=LOG_ON_STEP, on_epoch=CHECK_ON_TRAIN_END)
         self.log("val_acc", v_acc, on_step=LOG_ON_STEP, on_epoch=CHECK_ON_TRAIN_END)
@@ -74,6 +83,9 @@ class PartialSupervisedClassifier(pl.LightningModule):
         self.log("d_n", self.hparams['dn_log'])
         self.log("s_i", self.hparams['s_i'])
         self.val_accs.append(v_acc.item())
+
+
+
 
     def predict_test(self, features, label):
         prediction = self.classifier(features)
@@ -85,13 +97,19 @@ class PartialSupervisedClassifier(pl.LightningModule):
 #     SEMI SUPERVISED LEARNING DATA MODULE
 # -----------------------------------
 
-class SSLDataModule(pl.LightningDataModule):
-    def __init__(self, orig_data, batch_size: int = 64):
+class SSLDataModulePSup(pl.LightningDataModule):
+    def __init__(self, orig_data, using_resampled_lab,lab_bsize,tot_bsize: int = 64):
         super().__init__()
         self.orig_data = orig_data
-        self.batch_size = batch_size
+        self.tot_bsize = tot_bsize
+        
+        self.lab_bsize=lab_bsize
+        
+        self.using_resampled_lab=using_resampled_lab #whether we resample labels with replacement or just use straight label sample. resample = more stable training.
+        
+        
 
-    def setup(self, stage: Optional[str] = None):
+    def setup(self, stage: Optional[str] = None,precision='16'):
 
         orig_data = self.orig_data
 
@@ -112,7 +130,9 @@ class SSLDataModule(pl.LightningDataModule):
         # -------------#
 
         X_val = orig_data['val_features']
-        y_val = torch.argmax(orig_data['val_y'], 1)
+        #y_val = torch.argmax(orig_data['val_y'], 1)
+        
+        y_val = orig_data['val_y']
 
         # -------------#
         # Setting up resampling
@@ -122,23 +142,50 @@ class SSLDataModule(pl.LightningDataModule):
         n_labelled = X_train_lab.shape[0]
         dummy_label_weights = torch.ones(n_labelled)
         resampled_i = torch.multinomial(dummy_label_weights, num_samples=n_unlabelled, replacement=True)
-        X_train_lab_rs = X_train_lab[resampled_i]
-        y_train_lab_rs = y_train_lab[resampled_i]
+
         # ulab_mix is the data train!
-        self.data_train = torch.utils.data.TensorDataset(X_train_lab_rs,
-                                                         y_train_lab_rs,
-                                                         X_train_ulab)
         vfeat = X_val.unsqueeze(0)
         vlab = y_val.unsqueeze(0)
+        if precision=='16':
+            X_train_lab = orig_data['label_features'].cuda().half()
+            y_train_lab =orig_data['label_y'].cuda().half()
+            
+            X_train_lab_rs = X_train_lab[resampled_i]
+            y_train_lab_rs = y_train_lab[resampled_i]
+            
+            vfeat=vfeat.cuda().half()
+            vlab=vlab.cuda().half()
+            
+            
+        elif precision=='32':
+            X_train_lab = orig_data['label_features'].cuda().float()
+            y_train_lab = orig_data['label_y'].cuda().float()
+            
+            X_train_lab_rs = X_train_lab[resampled_i]
+            y_train_lab_rs = y_train_lab[resampled_i]
+            
+            vfeat=vfeat.cuda().float()
+            vlab=vlab.cuda().float()
+            
+            
+        if self.using_resampled_lab:
+            self.data_train = torch.utils.data.TensorDataset(X_train_lab_rs,y_train_lab_rs)
+            self.batch_size=self.tot_bsize
+        else:
+            self.data_train = torch.utils.data.TensorDataset(X_train_lab,y_train_lab)
+            self.lab_batch_size=self.lab_bsize
+            
+        #vfeat = X_val.unsqueeze(0)
+        #vlab = y_val.unsqueeze(0)
         self.data_validation = torch.utils.data.TensorDataset(vfeat, vlab)
         self.nval = vlab.shape[0]
 
         return (self)
 
     def train_dataloader(self):
-        has_gpu=torch.cuda.is_available()
+        #has_gpu=torch.cuda.is_available()
         if has_gpu:
-            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True, pin_memory=True,num_workers=4)
+            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
         else:
             return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
 
@@ -146,7 +193,7 @@ class SSLDataModule(pl.LightningDataModule):
         has_gpu=torch.cuda.is_available()
 
         if has_gpu:
-            return DataLoader(self.data_validation, batch_size=self.nval, pin_memory=True,num_workers=4)
+            return DataLoader(self.data_validation, batch_size=self.nval)
         else:
             return DataLoader(self.data_validation, batch_size=self.nval)
 
@@ -166,11 +213,14 @@ if __name__ == '__main__':
     parser.add_argument('--metric', help='which metric to select best model. bce or acc', type=str, default='val_acc')
     parser.add_argument('--use_tuned_hpms', help='use tuned hyper params or not', type=str, default='False')
     parser.add_argument('--min_epochs', help='min epochs to train for', type=int, default=10)
+    parser.add_argument('--precision',help='what precision u want, ie 16, 32, 16-true etc',type=str,default='32')
+    parser.add_argument('--plot_decision_boundary',help='plot the decision boundary ? or not',type=str,default='False')
 
     args = parser.parse_args()
 
     args.use_single_si = str_to_bool(args.use_single_si)
     args.use_tuned_hpms = str_to_bool(args.use_tuned_hpms)
+    args.plot_decision_boundary = str_to_bool(args.plot_decision_boundary)
 
     # get dataspec, read in as dictionary
     # this is the master dictionary database for parsing different datasets / misc modifications etc
@@ -204,7 +254,7 @@ if __name__ == '__main__':
         results_list = []
 
         orig_data = load_data(d_n=args.d_n, s_i=si_iter, dataset_folder=dspec.save_folder)  # load data
-        ssld = SSLDataModule(orig_data, batch_size=args.tot_bsize)
+        ssld = SSLDataModulePSup(orig_data, lab_bsize=args.lab_bsize,tot_bsize=args.tot_bsize,using_resampled_lab=True)
 
         ssld.setup()  # initialise the data
 
@@ -242,19 +292,21 @@ if __name__ == '__main__':
 
         # START TIME
         st = time.time()
-
+        
+        
+        # TENSORBOARD LOGGER
+        
+        
+        extra_trainer_kwargs={'precision':args.precision}#,'gradient_clip_val':0.5}
+        
+        
         for t in range(args.n_trials):
             print(f'doing s_i: {si_iter}\t t: {t}\t of: {args.n_trials}')
 
-            # CREATE MODEL
-            current_model = PartialSupervisedClassifier(**model_init_args)  # define model
-
-            # INITIALISE WEIGHTS
-            current_model.apply(init_weights_he_kaiming)  # re init model and weights
 
             # TRAINING CALLBACKS
             callbacks = []
-            max_pf_checkpoint_callback = return_chkpt_max_val_acc(current_model.model_name,
+            max_pf_checkpoint_callback = return_chkpt_max_val_acc(current_model_name,
                                                                   dspec.save_folder)  # returns max checkpoint
 
             if args.metric == 'val_bce':
@@ -265,31 +317,53 @@ if __name__ == '__main__':
             callbacks.append(max_pf_checkpoint_callback)
             callbacks.append(estop_cb)
 
-            # TENSORBOARD LOGGER
-            tb_logger = get_default_logger(current_model.model_name, args.d_n, si_iter, t)
+            tb_logger = get_default_logger(current_model_name, args.d_n, si_iter, t)
+            
 
             # TRAINER
-            trainer = get_default_trainer(args, tb_logger, callbacks, DETERMINISTIC_FLAG, **gpu_kwargs)
+            trainer = get_trainer_psup(args, tb_logger, callbacks, DETERMINISTIC_FLAG, **extra_trainer_kwargs)
+
+            with trainer.init_module():
+                # models created here will be on GPU and in float16
+                # CREATE MODEL
+                current_model = PartialSupervisedClassifier(**model_init_args)  # define model
+
+            # INITIALISE WEIGHTS
+            current_model.apply(init_weights_he_kaiming)  # re init model and weights
+
 
             # DELETE OLD SAVED MODELS
             clear_saved_models(current_model.model_name, dspec.save_folder, si_iter)
+
+
 
             # TRAIN
             trainer.fit(current_model, ssld)
 
             # LOAD OPTIMAL MODEL FROM CURRENT TRAINING
-            current_model = load_optimal_model(dspec, current_model)
 
+            #optimal model in 32 bit float for val metrics
+            current_model = load_optimal_model(dspec, current_model).cuda().float()
+            
+            if optimal_model is not None:
+                optimal_model = optimal_model.cuda().float()
+            
+            
+            
             # COMPARE TO OVERALL OPTIMAL MODEL FROM THIS RUN
-            optimal_model, optimal_trainer = return_optimal_model(current_model,
+            optimal_model, optimal_trainer,optimal_acc = return_optimal_model(current_model,
                                                                   trainer,
                                                                   optimal_model,
                                                                   optimal_trainer,
-                                                                  val_features,
-                                                                  val_lab,
+                                                                  val_features.float(),
+                                                                  val_lab.float(),
                                                                   metric=args.metric)
 
             del trainer
+            
+            
+            if optimal_acc==1.0: #break cos no need to keep going...
+                break
 
         # END TIME
         et = time.time()
@@ -315,13 +389,19 @@ if __name__ == '__main__':
         evaluate_on_test_and_unlabel(dspec, args, si_iter, current_model, optimal_model, orig_data, optimal_trainer)
 
         print('pausing here')
-        print('plotting decision boundaries (plotly)')
 
-        # PLOT HARD DECISION BOUNDARY
-        plot_decision_boundaries_plotly(dspec, si_iter, args, optimal_model, hard=True, output_html=False)
+        if args.plot_decision_boundary:
+            
+            print('plotting decision boundaries (plotly)')
+            
+            # PLOT HARD DECISION BOUNDARY
+            plot_decision_boundaries_plotly(dspec, si_iter, args, optimal_model, hard=True, output_html=False)
 
-        # PLOT SOFT (CONTINUOUS) DECISION BOUNDARY
-        plot_decision_boundaries_plotly(dspec, si_iter, args, optimal_model, hard=False, output_html=False)
+            # PLOT SOFT (CONTINUOUS) DECISION BOUNDARY
+            plot_decision_boundaries_plotly(dspec, si_iter, args, optimal_model, hard=False, output_html=False)
+            
+        else:
+            print('no plot decision boundary accoridng to args.plot_decision_boundary')
 
         # DELETE OPTIMALS SO CAN RESTART IF DOING MULTIPLE S_I
         del optimal_trainer

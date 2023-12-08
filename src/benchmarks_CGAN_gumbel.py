@@ -66,7 +66,11 @@ if __name__ == '__main__':
     parser.add_argument('--n_neuron_hidden', help='how many neurons in hidden layer if nhidden_layer==1', type=int,default=50)
     parser.add_argument('--estop_mmd_type',help='use trans or val on mmd validation',default='trans')
     parser.add_argument('--use_optimal_y_gen',help='use optimal y generator or not',default='False')
+    parser.add_argument('--precision',help='precision used by trainer, use 16 for fast on applicable gpu',default=32)
 
+
+
+    profiler=None
 
 
     args = parser.parse_args()
@@ -109,6 +113,8 @@ if __name__ == '__main__':
 
     SAVE_FOLDER=dspec.save_folder
     DELAYED_MIN_START=100
+    
+    PRECISION=args.precision
 
 
     algo_variant='gumbel'
@@ -283,6 +289,12 @@ if __name__ == '__main__':
             estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
             min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,
                                                                      dspec.save_folder)  # returns max checkpoint
+            
+        elif args.estop_mmd_type == 'val_trans':
+            estop_cb = return_early_stop_min_val_trans_mmd(patience=args.estop_patience)
+            min_mmd_checkpoint_callback = return_chkpt_min_val_trans_mmd(model_name,
+                                                                        dspec.save_folder)  # returns max checkpoint
+
 
         callbacks = [min_mmd_checkpoint_callback, estop_cb]
 

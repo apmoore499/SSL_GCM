@@ -51,8 +51,10 @@ if __name__ == '__main__':
     parser.add_argument('--estop_patience',help='patience for training generators, stop trianing if no improve after this # epoch',type=int,default=10)
     parser.add_argument('--nhidden_layer',help='how many hidden layers in implicit model:1,3,5',type=int,default=1)
     parser.add_argument('--n_neuron_hidden',help='how many neurons in hidden layer if nhidden_layer==1',type=int,default=50)
-    parser.add_argument('--estop_mmd_type',help='callback for early stopping. either use val mmd or trans mmd, val or trans respectively',default='val')
+    #parser.add_argument('--estop_mmd_type',help='callback for early stopping. either use val mmd or trans mmd, val or trans respectively',default='val')
+    parser.add_argument('--estop_mmd_type',help='callback for early stopping. either use val mmd or trans mmd, val or trans respectively ADD E[val + trans] val_trans',default='val')
     parser.add_argument('--use_tuned_hpms',help='use tuned hyperparameters',default='False')
+    parser.add_argument('--precision',help='precision used by trainer, use 16 for fast on applicable gpu',default=32)
 
 
 
@@ -236,11 +238,15 @@ if __name__ == '__main__':
             min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,
                                                                      dspec.save_folder)  # returns max checkpoint
 
+        elif args.estop_mmd_type == 'val_trans':
+            estop_cb = return_early_stop_min_val_trans_mmd(patience=args.estop_patience)
+            min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,
+                                                                     dspec.save_folder)  # returns max checkpoint
+
         callbacks = [min_mmd_checkpoint_callback, estop_cb]
 
         tb_logger = create_logger(model_name, d_n, s_i)
-        trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations)
-
+        trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations,precision=args.precision)
         delete_old_saved_models(model_name, dspec.save_folder, s_i)
 
         trainer.fit(gen_x, tloader)  # train here
@@ -318,7 +324,7 @@ if __name__ == '__main__':
             estop_cb = return_early_stop_cb_bce(patience=args.estop_patience)
             callbacks = [min_bce_chkpt_callback, estop_cb]
             tb_logger = create_logger(model_name, d_n, s_i)
-            trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations)
+            trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations,precision=args.precision)
             delete_old_saved_models(model_name, dspec.save_folder, s_i)
             trainer.fit(y_x1gen, tloader)  # train here
             mod_names = return_saved_model_name(model_name, dspec.save_folder, d_n, s_i)
@@ -459,7 +465,7 @@ if __name__ == '__main__':
 
             callbacks = [min_mmd_checkpoint_callback, estop_cb]
             tb_logger = create_logger(model_name, d_n, s_i)
-            trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, args.n_iterations)
+            trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations,precision=args.precision)
             delete_old_saved_models(model_name, dspec.save_folder, s_i)
             trainer.fit(x2_y_gen, tloader)
             mod_names = return_saved_model_name(model_name, dspec.save_folder, dspec.dn_log, s_i)
@@ -573,7 +579,7 @@ if __name__ == '__main__':
 
             callbacks = [min_mmd_checkpoint_callback, estop_cb]
             tb_logger = create_logger(model_name, args.d_n, s_i)
-            trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations)
+            trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations,precision=args.precision)
             delete_old_saved_models(model_name, dspec.save_folder, s_i)  # delete old
             trainer.fit(genx2_yx1, tloader)  # train here
 

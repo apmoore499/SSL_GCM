@@ -28,6 +28,14 @@ from generative_models.benchmarks_cgan import *
 from parse_data import *
 import time
 
+import sys
+
+from pytorch_lightning.profilers import Profiler, PassThroughProfiler,AdvancedProfiler
+
+
+
+
+
 
 torch.set_float32_matmul_precision('medium') #try with 4090
 
@@ -37,6 +45,7 @@ if __name__ == '__main__':
     parser.add_argument('--s_i', help='which random draw of s_i in {0,...,99} ',type=int)
     parser.add_argument('--n_iterations', help='how many iterations to train classifier for',type=int,default=100)
     parser.add_argument('--lr',help='learning rate ie 1e-2, 1e-3,...',type=float,default=1e-3)
+    parser.add_argument('--lambda_U',help='lambda_U for influence of unlabeleld data on loss',type=float,default=1.0)
     parser.add_argument('--use_single_si',help='do we want to train on collection of si or only single instance',type=str,default='True')
     parser.add_argument('--use_bernoulli',help='use bernoulli for y given x',type=str,default='False')
     parser.add_argument('--use_benchmark_generators',help='using benchmark generators or not',type=str,default='False')
@@ -47,7 +56,8 @@ if __name__ == '__main__':
     parser.add_argument('--n_neuron_hidden',help='how many neurons in hidden layer if nhidden_layer==1',type=int,default=50)
     parser.add_argument('--estop_mmd_type',help='callback for early stopping. either use val mmd or trans mmd, val or trans respectively',default='val')
     parser.add_argument('--use_tuned_hpms',help='use tuned hyperparameters',default='False')
-
+    parser.add_argument('--plot_synthetic_dist',help='plotting of synthetic data (take extra time), not necessary',default='False')
+    parser.add_argument('--precision',help='traainer precision ie 32,16',default='32')
 
 
     args = parser.parse_args()
@@ -55,6 +65,7 @@ if __name__ == '__main__':
     args.use_bernoulli=str_to_bool(args.use_bernoulli)
     args.use_benchmark_generators=str_to_bool(args.use_benchmark_generators)
     args.use_tuned_hpms = str_to_bool(args.use_tuned_hpms)
+    args.plot_synthetic_dist=str_to_bool(args.plot_synthetic_dist)
 
     if args.use_tuned_hpms==True:
         print('args flag for use tuned hparams is TRUE, but hpms not available for CGAN method: running algorithm without any tuned hpms')
@@ -101,9 +112,42 @@ if __name__ == '__main__':
     else:
         args.optimal_si_list=[i for i in range(args.s_i)]
 
-    for k, s_i in enumerate(args.optimal_si_list):
+
+    
+    st_outer=time.time()
+    
+    
+    n_to_do=len(args.optimal_si_list)
+    
+    #k is idx.....
+    
+    
+    
+    #n_complete=0
+    
+    
+    ##end
+    
+    #n_complete+=1
+    
+    #remaining=n_to_do-n_complete
+    
+    
+    old_plot=args.plot_synthetic_dist
+    
+    import tqdm
+    
+    for k, s_i in tqdm.tqdm(enumerate(args.optimal_si_list)):
         print('doing s_i: {0}'.format(s_i))
         args.st = time.time()
+
+        if s_i<5:
+            args.plot_synthetic_dist=True
+            
+        else:
+            args.plot_synthetic_dist=old_plot
+
+
 
         dsc_loader=eval(dspec.dataloader_function) #within the spec
         dsc=dsc_loader(args,s_i,dspec)
@@ -163,33 +207,67 @@ if __name__ == '__main__':
                                    num_hidden_layer=args.nhidden_layer,
                                    middle_layer_size=args.n_neuron_hidden,
                                    label_batch_size=args.lab_bsize,
-                                   unlabel_batch_size=args.tot_bsize)
+                                   unlabel_batch_size=args.tot_bsize,
+                )
 
+
+
+                #gen_x.to(torch.device('cuda'))
 
                 tloader=SSLDataModule_Unlabel_X(dsc.merge_dat,target_x=cur_x_lab,batch_size=args.tot_bsize)
                 model_name=create_model_name(dsc.labels[v_i],algo_variant)
+                profiler = None
 
 
+                #profiler = AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_x_newer.log')
+                from pytorch_lightning.profilers import PyTorchProfiler
 
+                #profiler = PyTorchProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_x_newer_ptorch.log',row_limit=None)
+                
+                
 
+                # if args.estop_mmd_type == 'val': 
+                #     estop_cb = return_early_stop_min_val_mmd(patience=args.estop_patience)
+                #     min_mmd_checkpoint_callback=return_chkpt_min_val_mmd(model_name, dspec.save_folder) #returns max checkpoint
 
-                if args.estop_mmd_type == 'val':
-                    estop_cb = return_early_stop_min_val_mmd(patience=args.estop_patience)
-                    min_mmd_checkpoint_callback=return_chkpt_min_val_mmd(model_name, dspec.save_folder) #returns max checkpoint
-
-                elif args.estop_mmd_type == 'trans':
-                    estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
-                    min_mmd_checkpoint_callback=return_chkpt_min_trans_mmd(model_name, dspec.save_folder) #returns max checkpoint
-
-
+                #elif args.estop_mmd_type == 'trans': #just use trans regardless for X1 type variables. This covers XC and XS.
+                estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
+                min_mmd_checkpoint_callback=return_chkpt_min_trans_mmd(model_name, dspec.save_folder) #returns max checkpoint
+                
+                # elif args.estop_mmd_type == 'val_trans':
+                #     estop_cb = return_early_stop_min_val_mmd(patience=args.estop_patience)
+                #     min_mmd_checkpoint_callback=return_chkpt_min_val_mmd(model_name, dspec.save_folder) #returns max checkpoint
+                
+                
+                
+                from pytorch_lightning.callbacks import StochasticWeightAveraging
+                #swa=StochasticWeightAveraging(swa_lrs=1e-2)
+                
+                tloader.setup()
+                
+                #callbacks=[min_mmd_checkpoint_callback,estop_cb,swa]
                 callbacks=[min_mmd_checkpoint_callback,estop_cb]
 
                 tb_logger = create_logger(model_name,d_n,s_i)
-                trainer = create_trainer(tb_logger, callbacks, gpu_kwargs,max_epochs=args.n_iterations)
+                trainer = create_trainer(tb_logger, callbacks, gpu_kwargs,max_epochs=args.n_iterations,profiler=profiler)
 
                 delete_old_saved_models(model_name,dspec.save_folder,s_i)
 
+                #tuner=pl.tuner.Tuner(trainer)
+                
+                #tuner.lr_find(gen_x)
+                
+                #import torch
+                #import torchvision.models as models
+                #from torch.profiler import profile, record_function, ProfilerActivity
+                
+                #with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+                    #with record_function("model_inference"):
+                        #model(inputs)
+
                 trainer.fit(gen_x,tloader) #train here
+                    
+                #print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
                 mod_names=return_saved_model_name(model_name,dspec.save_folder,dspec.dn_log,s_i)
                 gen_x=type(gen_x).load_from_checkpoint(checkpoint_path=mod_names[0]) #loads correct model
@@ -244,7 +322,7 @@ if __name__ == '__main__':
                 estop_cb=return_early_stop_cb_bce(patience=args.estop_patience)
                 callbacks=[min_bce_chkpt_callback,estop_cb]
                 tb_logger = create_logger(model_name, d_n, s_i)
-                trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations)
+                trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations)#,gradient_clip_val=0.5)
                 delete_old_saved_models(model_name, dspec.save_folder, s_i)
                 trainer.fit(y_x1gen,tloader) #train here
                 mod_names=return_saved_model_name(model_name,dspec.save_folder,d_n,s_i)
@@ -301,7 +379,21 @@ if __name__ == '__main__':
                 n_ulab = x_vals.shape[0]
 
                 dict_for_mmd={'x1':1,'x3':34,'x5':[1,2,3,4,5]}
-
+                
+                
+                # get data loader
+                tloader = SSLDataModule_X_from_Y(orig_data_df=dsc.merge_dat,
+                                                 tvar_name=dsc.label_names[v_i],
+                                                 cvar_name=cond_lab,
+                                                 cvar_type='label',
+                                                 labelled_batch_size=args.lab_bsize,
+                                                 unlabelled_batch_size=args.tot_bsize,
+                                                 **vinfo_dict)
+                
+                tloader.setup()
+                
+                x_l=tloader.x_l
+                y_l=tloader.y_l
                 # make gen
                 x2_y_gen = Generator_X2_from_Y(args.lr,
                                                args.d_n,
@@ -315,15 +407,10 @@ if __name__ == '__main__':
                                                n_lab=n_lab,
                                                n_ulab=n_ulab,
                                                label_batch_size=args.lab_bsize,
-                                               unlabel_batch_size=args.tot_bsize)  # this is it
-                # get data loader
-                tloader = SSLDataModule_X_from_Y(orig_data_df=dsc.merge_dat,
-                                                 tvar_name=dsc.label_names[v_i],
-                                                 cvar_name=cond_lab,
-                                                 cvar_type='label',
-                                                 labelled_batch_size=args.lab_bsize,
-                                                 unlabelled_batch_size=args.tot_bsize,
-                                                 **vinfo_dict)
+                                               unlabel_batch_size=args.tot_bsize,
+                                               x_l=x_l,
+                                               y_l=y_l)# this is it
+
                 model_name=create_model_name(dsc.labels[v_i],algo_variant)
                 cond_vars = ''.join(cond_lab)
 
@@ -338,9 +425,21 @@ if __name__ == '__main__':
                                                                              dspec.save_folder)  # returns max checkpoint
 
 
+                elif args.estop_mmd_type == 'val_trans':
+                    estop_cb = return_early_stop_min_val_trans_mmd(patience=args.estop_patience)
+                    min_mmd_checkpoint_callback = return_chkpt_min_val_trans_mmd(model_name,
+                                                                             dspec.save_folder)  # returns max checkpoint
+
+
                 callbacks=[min_mmd_checkpoint_callback,estop_cb]
+                
+                
+                
+                
+                profiler = AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_xe_from_y.log')
+                
                 tb_logger = create_logger(model_name,d_n,s_i)
-                trainer = create_trainer(tb_logger,callbacks,gpu_kwargs,args.n_iterations)
+                trainer = create_trainer(tb_logger,callbacks,gpu_kwargs,args.n_iterations,precision=args.precision,profiler=profiler)
                 delete_old_saved_models(model_name, dspec.save_folder, s_i)
                 trainer.fit(x2_y_gen, tloader)
                 mod_names = return_saved_model_name(model_name, dspec.save_folder, dspec.dn_log, s_i)
@@ -422,7 +521,7 @@ if __name__ == '__main__':
 
                 callbacks = [min_mmd_checkpoint_callback,estop_cb]
                 tb_logger=create_logger(model_name,d_n,s_i)
-                trainer=create_trainer(tb_logger,callbacks,gpu_kwargs,max_epochs=args.n_iterations)
+                trainer=create_trainer(tb_logger,callbacks,gpu_kwargs,max_epochs=args.n_iterations,precision=args.precision)
                 # deletions
                 delete_old_saved_models(model_name, dspec.save_folder, s_i)
                 # training
@@ -539,8 +638,9 @@ if __name__ == '__main__':
                                                 middle_layer_size=args.n_neuron_hidden,
                                                 n_lab=n_lab,
                                                 n_ulab=n_ulab,
-                                                label_batch_size=args.lab_bsize,
+                                                label_batch_size=32,#args.lab_bsize,
                                                 unlabel_batch_size=args.tot_bsize,
+                                                labmda_U=args.lambda_U,
                                                 dict_for_mmd=mmd_vlabels)
 
 
@@ -573,12 +673,17 @@ if __name__ == '__main__':
                     estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
                     min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,
                                                                              dspec.save_folder)  # returns max checkpoint
+                
+                
+                
+                
+                profiler = None #AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_x2y.log')
 
 
 
                 callbacks = [min_mmd_checkpoint_callback, estop_cb]
                 tb_logger = create_logger(model_name,args.d_n,s_i)
-                trainer=create_trainer(tb_logger,callbacks,gpu_kwargs,max_epochs=args.n_iterations)
+                trainer=create_trainer(tb_logger,callbacks,gpu_kwargs,max_epochs=args.n_iterations,profiler=profiler,precision=args.precision)
                 delete_old_saved_models(model_name,dspec.save_folder,s_i) #delete old
                 trainer.fit(genx2_yx1,tloader) #train here
 
@@ -636,19 +741,28 @@ if __name__ == '__main__':
         total_time/=60
 
 
-        print('total time taken for n_iterations: {0}\t {1} minutes'.format(n_iterations,total_time))
+        print(f'total time taken for n_iterations: {n_iterations}\t {total_time:.4f} minutes')
+        
+        
+        rem_runs=100-s_i
+        eta=rem_runs*total_time
+        
+        
+        print(f'estimated time remain:\t{eta:.4f}\tmin')
+        
         # dict of hyperparameters - parameters to be written as text within synthetic data plot later on
-        hpms_dict = {'lr': args.lr,
-                     'n_iterations': args.n_iterations,
-                     'lab_bs': args.lab_bsize,
-                     'ulab_bs': args.tot_bsize,
-                     'nhidden_layer': args.nhidden_layer,
-                     'neuron_in_hidden': args.n_neuron_hidden,
-                     'use_bernoulli': args.use_bernoulli,
-                     'time':total_time}
+        
         if dsc.feature_dim==1:
             print('feature dim==1 so we are going to to attempt to plot synthetic v real data')
-            #plot_synthetic_and_real_data(hpms_dict,dsc,args,s_i,joined_synthetic_data,synthetic_data_dir,dspec)
+            hpms_dict = {'lr': args.lr,
+                        'n_iterations': args.n_iterations,
+                        'lab_bs': args.lab_bsize,
+                        'ulab_bs': args.tot_bsize,
+                        'nhidden_layer': args.nhidden_layer,
+                        'neuron_in_hidden': args.n_neuron_hidden,
+                        'use_bernoulli': args.use_bernoulli,
+                        'time':total_time}
+            plot_synthetic_and_real_data(hpms_dict,dsc,args,s_i,joined_synthetic_data,synthetic_data_dir,dspec)
         else:
 
             #scols = [s.replace('_0', '') for s in joined_synthetic_data.columns]
@@ -667,6 +781,41 @@ if __name__ == '__main__':
             dsc.var_names=dsc.labels
             dsc.feature_varnames=dsc.feature_names
             dsc.s_i=s_i
-            #plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir=synthetic_data_dir)
+            
+            if args.plot_synthetic_dist:
+                plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir=synthetic_data_dir)
 
-            print('data plotted')
+                print('data plotted')
+                
+            else:
+                print('data not plotted')
+            
+            
+            import signal
+                
+            #exit without waiting for sync
+            # https://stackoverflow.com/questions/905189/why-does-sys-exit-not-exit-when-called-inside-a-thread-in-python
+
+
+            import os
+            os._exit(0)
+            #os.kill(os.getpid(), signal.SIGINT)
+                
+                
+        print('-------------------------')
+        print('run finished')
+        print('-------------------------')
+        
+        #sys.exit()
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        

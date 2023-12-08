@@ -101,6 +101,17 @@ def return_chkpt_min_trans_mmd(model_name,data_dir):
     )
     return(checkpoint_callback)
 
+#for model with min mmd loss validation mmd
+def return_chkpt_min_val_trans_mmd(model_name,data_dir):
+    checkpoint_callback = ModelCheckpoint(
+        monitor="val_trans_mmd",
+        dirpath="{0}/saved_models".format(data_dir),
+        filename=model_name+ "-{s_i:.0f}-{epoch:02d}-{trans_mmd:.2f}",
+        save_top_k=1,
+        mode="min",
+    )
+    return(checkpoint_callback)
+
 
 #returns model checkpoint max val accuracy
 def return_chkpt_max_val_acc(model_name,data_dir):
@@ -156,6 +167,16 @@ def return_early_stop_min_trans_mmd(patience=50):
                                         check_finite=True)
     return(early_stop_callback)
 
+#early stopping callback transductive mmd
+def return_early_stop_min_val_trans_mmd(patience=50):
+    early_stop_callback = EarlyStopping(monitor="val_trans_mmd",
+                                        min_delta=0.00,
+                                        patience=patience,
+                                        verbose=False,
+                                        mode="min",
+                                        check_finite=True)
+    return(early_stop_callback)
+
 
 #early stopping callback classifier binary cross entropy loss
 def return_early_stop_cb_bce(patience=100):
@@ -173,14 +194,21 @@ def create_logger(model_name, d_n, s_i,default_dir="lightning_logs/"):
     return (tb_logger)
 
 # trainer for pytorch lightning
-def create_trainer(logger,callbacks,gpu_kwargs,max_epochs):
+def create_trainer(logger,callbacks,gpu_kwargs,max_epochs,profiler=None,**kwargs):
     trainer= pl.Trainer(log_every_n_steps=1,
                          check_val_every_n_epoch=1,
                          max_epochs=max_epochs,
                          callbacks=callbacks,
+                         benchmark=True,
                         logger=logger,
                         #progress_bar_refresh_rate=0,
-                        reload_dataloaders_every_n_epochs=1)
+                        profiler=profiler,
+                        accelerator='gpu',
+                        #devices=0,
+                        enable_progress_bar=True,
+                        #**gpu_kwargs,
+                        **kwargs)
+                        #reload_dataloaders_every_n_epochs=1)
                         #**gpu_kwargs)
     return(trainer)
 
@@ -1653,7 +1681,7 @@ def get_dataset_folder(d_n):
 # return formatted concatented name of saved model
 def return_saved_model_name(model_name,save_dir,d_n,s_i):
     #old_fn_match='{0}-s_i={1}-epoch='.format(model_name,s_i)
-    old_models=glob.glob(save_dir+'/'+'saved_models'+'/*')
+    old_models=glob.glob(save_dir+'/'+'saved_models'+'/*') 
     old_fn_match='{0}-s_i={2}-epoch='.format(model_name,d_n,s_i)
     #old_models_extra=glob.glob(save_dir+'/'+'saved_models'+'/*')
     #old_models=old_models+old_models_extra
@@ -1710,50 +1738,97 @@ from sklearn.neighbors import NearestNeighbors
 #     misc functions
 #-----------------------------------
 
-# get median pairwise distance of in_tensor
+
+
+
+
+
+
+
+
+#rewrite so it's all completely on torch, see if improve speed!!
+def get_median_pwd(in_tensor):
+    device_str=torch.device('cuda:0')
+    assert in_tensor.device==device_str,f'in tensor device: {in_tensor.device}'
+    pairwise_distances=torch.cdist(in_tensor,in_tensor)
+    I_mat=torch.eye(in_tensor.shape[0],device=torch.device(device_str))
+    idx_m=torch.ones_like(pairwise_distances)
+    idx_m=idx_m-I_mat
+    mdist=torch.median(pairwise_distances[idx_m.to(torch.bool)])
+    return(mdist)
+
+
+# # get median pairwise distance of in_tensor
 # def get_median_pwd(in_tensor):
     
-#     npi=[d for d in pairwise_distances_chunked(in_tensor.cpu().detach().numpy().astype(np.float32))]
-#     retval = np.median(npi)
+#     #randomly downsample....
+    
+    
+#     perms=[]
+#     medians=[]
+    
+#     n_medians=5
+    
+#     if in_tensor.shape[0]>11000:
+#         for k,n in enumerate(range(n_medians)):
+#             print(f'median number: {k}')
+#             perm=torch.randperm(in_tensor.shape[0])[:11000]
+#             pwd=np.median(pairwise_distances(in_tensor[perm].cpu().detach().numpy().astype(np.float32)))
+#             medians.append(pwd)
+            
+#         print(medians)
+#         #retval=np.max(medians) #take max?
+#         retval=np.median(medians) #take median?
+#     else: #lesss than 10,000 can fit in memory
+#         retval=np.median(pairwise_distances(in_tensor.cpu().detach().numpy().astype(np.float32)))
+    
+    
+#     #from IPython.core.debugger import set_trace
+    
+    
+#     #set_trace()
+    
+    
+    
 #     return (retval)
 
 # get median pairwise distance of in_tensor
-def get_median_pwd(in_tensor):
-    # Number of neighbors to consider for approximate median calculation
-    n_neighbors = 10
+# def get_median_pwd(in_tensor):
+#     # Number of neighbors to consider for approximate median calculation
+#     n_neighbors = 1000
 
-    # Create a nearest neighbors model
-    nn = NearestNeighbors(n_neighbors=n_neighbors, algorithm='auto')
+#     # Create a nearest neighbors model
+#     nn = NearestNeighbors(n_neighbors=n_neighbors, algorithm='auto')
     
-    data=in_tensor.cpu().detach().numpy()
-    nn.fit(data)
+#     data=in_tensor.cpu().detach().numpy()
+#     nn.fit(data)
 
-    # Query neighbors for each point
-    distances, _ = nn.kneighbors(data)
+#     # Query neighbors for each point
+#     distances, _ = nn.kneighbors(data)
 
-    # Compute median pairwise distances for each point
-    median_distances = np.median(distances, axis=1)
+#     # Compute median pairwise distances for each point
+#     median_distances = np.median(distances, axis=1)
 
-    # Compute the overall median
-    overall_median_distance = np.median(median_distances)
+#     # Compute the overall median
+#     overall_median_distance = np.median(median_distances)
     
-    return (overall_median_distance)
+#     return (overall_median_distance)
     
-    #using approxi method with neareast neighoburts to speed upe
+#     #using approxi method with neareast neighoburts to speed upe
     
-    #npi=[d for d in pairwise_distances_chunked(in_tensor.cpu().detach().numpy().astype(np.float32))]
-    #retval = np.median(npi)
-    #return (retval)
+#     #npi=[d for d in pairwise_distances_chunked(in_tensor.cpu().detach().numpy().astype(np.float32))]
+#     #retval = np.median(npi)
+#     #return (retval)
 
 
-    # # Generate random data (replace this with your actual data)
-    # n_samples = 1000
-    # n_features = 10
-    # data = np.random.rand(n_samples, n_features)
+#     # # Generate random data (replace this with your actual data)
+#     # n_samples = 1000
+#     # n_features = 10
+#     # data = np.random.rand(n_samples, n_features)
 
 
 
-    #print("Overall Median Pairwise Distance:", overall_median_distance)
+#     #print("Overall Median Pairwise Distance:", overall_median_distance)
 
 
 # plot the dag
@@ -1768,15 +1843,15 @@ def plotting_dag(ds,dn):
     layout=ds.dag.layout_grid())
     return(retg)
 
-# convert string to boolean value true false
-def str_to_bool(in_str):
-    if in_str=='True':
-        return(True)
-    if in_str=='False':
-        return(False)
-    else:
-        assert(1==0)
-        return(None)
+# # convert string to boolean value true false
+# def str_to_bool(in_str):
+#     if in_str=='True':
+#         return(True)
+#     if in_str=='False':
+#         return(False)
+#     else:
+#         assert(1==0)
+#         return(None)
 
 # initialise weights for new network
 def init_weights(m):
