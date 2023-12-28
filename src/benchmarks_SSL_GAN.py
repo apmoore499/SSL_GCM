@@ -27,31 +27,39 @@ torch.set_float32_matmul_precision('high') #try with 4090
 
 DETERMINISTIC_FLAG=False
 
-
 class SGANClassifier(pl.LightningModule):
-    def __init__(self, lr, d_n, s_i, alpha, input_dim,output_dim,dn_log,tot_bsize=None,best_value=None):
+    def __init__(self, lr, d_n, s_i, alpha, input_dim,output_dim,dn_log,tot_bsize=None,best_value=None,current_model_name='SSL_GAN',disc_layers=[100,5],gen_layers=[100,5]):
         super().__init__()
 
         self.save_hyperparameters()
-
-        self.gen = get_standard_net(input_dim=input_dim,
-                                    output_dim=input_dim)
-
-        self.disc = get_standard_net(input_dim=input_dim,
-                                     output_dim=output_dim)
+        
+        
+        
+        self.gen = make_mlp(input_dim=input_dim,
+                            hidden_layers=gen_layers,
+                            output_dim=input_dim)
+        
+        
+        self.disc = make_mlp(input_dim=input_dim,
+                            hidden_layers=disc_layers,
+                            output_dim=output_dim)
+                
 
         self.aux_lfunc = torch.nn.CrossEntropyLoss()
         self.adv_lfunc = torch.nn.BCEWithLogitsLoss()
+        
+        self.smax = torch.nn.Softmax(dim=1)
 
         self.val_accs = []
 
-        self.model_name = 'SSL_GAN'
+        self.model_name = current_model_name
         
         
         self.automatic_optimization=False
         
         self.hparams['dn_log']=int(self.hparams['dn_log'])
         self.hparams['s_i']=int(self.hparams['s_i'])#,device=torch.device('cuda'))
+
 
     def forward(self, x):
         # in lightning, forward defines the prediction/inference actions
@@ -76,37 +84,46 @@ class SGANClassifier(pl.LightningModule):
         # generate fake sample
         synthetic_dat = self.gen(z)
         
+        from IPython.core.debugger import set_trace
+        #set_trace()
+        
+        
+        #set_trace()
+        
         
         # 2. get adversarial loss on real data
+        #guess_label_real = self.smax(self.disc(x_l))+1e-6
         
-        
-        guess_label_real = self.disc(x_l)+1e-6
+        guess_label_real=self.disc(x_l)+1e-6
         auxSup_loss = self.aux_lfunc(guess_label_real, y_l)
         
-        #put in eps so we don't get NaNs...
         
+        #put in eps so we don't get NaNs...
         guess_unlabel_real = self.disc(x_ul)+1e-6
         exp_ret = torch.exp(guess_unlabel_real)
-        les = exp_ret.sum(dim=-1)+1e-6
-        adversarial_loss_unsupervised = les / (les + 1)  # ie this is equivalent to D(x)/D(x)+1 from paper
-        rl_tens = torch.ones_like(x_ul[:, 0]).float()
-        error_disc_real = self.adv_lfunc(adversarial_loss_unsupervised, rl_tens)
+        z_x = exp_ret.sum(dim=-1)+1e-6
+        D_x_real = z_x / (z_x + 1)  # ie this is equivalent to Z(x)/(Z(x)+1)=D(x) from paper, we want this one to be 1 for discrimiantor!!
+        #rl_tens = torch.ones_like(D_x_real)#.float()
+        
+        log_Dx = F.binary_cross_entropy_with_logits(D_x_real, torch.ones_like(D_x_real))+1e-6
         
         
         
+        #guess_label_real=self.disc(x_l)+1e-6
 
         # 3. get adversarial loss on fake data
-        guess_label_fake = self.disc(synthetic_dat.detach())
-        exp_ret = torch.exp(guess_label_fake)
-        les = exp_ret.sum(dim=-1)+1e-6
-        fake_classification = les / (les + 1)
-        fl_tens = torch.zeros_like(synthetic_dat[:, 0].detach()).float()
-        error_disc_fake = self.adv_lfunc(fake_classification, fl_tens)
-        errD_unsup = self.hparams['alpha'] * (error_disc_real + error_disc_fake)+1e-6
+        guess_label_fake = self.disc(synthetic_dat.detach())#+1e-6
+        exp_ret = torch.exp(guess_label_fake)+1e-6
+        z_gz = exp_ret.sum(dim=-1)
+        D_gz = z_gz / (z_gz + 1)
+        
+        log_D_gz = F.binary_cross_entropy_with_logits(D_gz, torch.zeros_like(D_gz))
+        
+        errD_unsup = self.hparams['alpha'] * (log_Dx + log_D_gz+1e-6)
         
         
         disc_loss = errD_unsup + auxSup_loss
-        
+        disc_loss*=0.1
         
         opt_d.zero_grad()
         
@@ -122,14 +139,19 @@ class SGANClassifier(pl.LightningModule):
         
         
         disc_pred_synthetic = self.disc(synthetic_dat)
-        exp_ret = torch.exp(disc_pred_synthetic)
-        les = exp_ret.sum(dim=-1)+1e-6
-        adv_loss_synthetic = les / (les + 1)
-        rl_tens = torch.ones_like(disc_pred_synthetic[:, 0]).type_as(disc_pred_synthetic)
-        gen_loss = self.adv_lfunc(adv_loss_synthetic, rl_tens)+1e-6
+        
+        exp_ret = torch.exp(disc_pred_synthetic)+1e-6
+        Z_Dgz = exp_ret.sum(dim=-1)#+1e-6
+        D_gz = Z_Dgz / (Z_Dgz + 1)
+        #rl_tens = torch.ones_like(disc_pred_synthetic[:, 0]).type_as(disc_pred_synthetic)
+        
+        log_D_gz = F.binary_cross_entropy_with_logits(D_gz, torch.ones_like(D_gz))+1e-6
+        
+        
+        #gen_loss = self.adv_lfunc(adv_loss_synthetic, rl_tens)+1e-6
 
         
-        
+        gen_loss=log_D_gz*0.1
         
                     
         opt_g.zero_grad()
@@ -139,13 +161,10 @@ class SGANClassifier(pl.LightningModule):
         
         
             
-        #self.log('gen_train_loss', loss, on_step=LOG_ON_STEP, on_epoch=CHECK_ON_TRAIN_END)
         
         self.log_dict({"gen_train_loss": gen_loss, "disc_train_loss": disc_loss},prog_bar=True)#"temp":self.temp})
-           
-            
-            
-  
+
+
     def configure_optimizers(self):
 
         opt_g = torch.optim.Adam(self.gen.parameters(), lr=self.hparams['lr'])
@@ -285,19 +304,11 @@ class SSLDataModule(pl.LightningDataModule):
 
 
     def train_dataloader(self):
-        #has_gpu=torch.cuda.is_available()
-        if has_gpu:
-            return DataLoader(self.data_train, batch_size=self.tot_bsize, shuffle=True)
-        else:
-            return DataLoader(self.data_train, batch_size=self.tot_bsize, shuffle=True)
+        return DataLoader(self.data_train, batch_size=self.tot_bsize, shuffle=True)
+
 
     def val_dataloader(self):
-        has_gpu=torch.cuda.is_available()
-
-        if has_gpu:
-            return DataLoader(self.data_validation, batch_size=self.nval)
-        else:
-            return DataLoader(self.data_validation, batch_size=self.nval)
+        return DataLoader(self.data_validation, batch_size=self.nval)
 
 
 
@@ -442,8 +453,7 @@ if __name__ == '__main__':
 
             # TRAINING CALLBACKS
             callbacks = []
-            max_pf_checkpoint_callback = return_chkpt_max_val_acc(current_model_name,
-                                                                  dspec.save_folder)  # returns max checkpoint
+            max_pf_checkpoint_callback = return_chkpt_max_val_acc(current_model_name,dspec.save_folder)  # returns max checkpoint
 
             if args.metric == 'val_bce':
                 estop_cb = return_estop_val_bce(patience=args.estop_patience)

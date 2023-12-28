@@ -64,6 +64,9 @@ def objective(trial):
     elif args.estop_mmd_type == 'trans':
         estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
         min_mmd_checkpoint_callback=return_chkpt_min_trans_mmd(model_name, dspec.save_folder) #returns max checkpoint
+        
+        
+        
     # Create nwe model with these hparam!
     callbacks=[min_mmd_checkpoint_callback,estop_cb]
     tb_logger = create_logger(model_name,d_n,s_i)

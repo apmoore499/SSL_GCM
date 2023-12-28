@@ -71,7 +71,59 @@ list_of_models = ['FULLY_SUPERVISED_CLASSIFIER',
                   'VAT',
                   'ENTROPY_MINIMISATION',
                   'LABEL_PROPAGATION',
+                  'ASSFSCMR',
+                  'SFAMCAMT',
                   'PARTIAL_SUPERVISED_CLASSIFIER']
+
+
+
+drop_idx = ['n', 'P-SUP','F-SUP']
+
+
+def get_colmax(in_col, drop_idx=None):
+    # takes in_col as pd series (column) and returns the max value when interpreted as value+-error
+    # drop some columns...
+    #in_col.loc['F-SUP']='-100 ± 100'
+    if drop_idx is not None:
+        in_values = in_col.drop(drop_idx).values
+    else:
+        in_values=in_col
+    in_values = [v.replace('nan ± nan','-100 ± 100') for v in in_values]
+    in_values = [v.replace('-', '-100 ± 100') for v in in_values]
+    values = [v.split(' ± ')[0] for v in in_values]
+    values = [float(v) for v in values]
+    values = np.array(values)
+    max_idx = np.argmax(values)
+    max_instance = in_values[max_idx]
+    return (max_instance)
+
+
+from functools import partial
+
+
+
+
+def bold_formatter(x, value):
+    """Format a number in bold when (almost) identical to a given value.
+
+    Args:
+        x: Input number.
+
+        value: Value to compare x with.
+
+        num_decimals: Number of decimals to use for output format.
+
+    Returns:
+        String converted output.
+
+    """
+    # Consider values equal, when rounded results are equal
+    # otherwise, it may look surprising in the table where they seem identical
+    if x == value:
+        return f"\\textbf{{{x}}}"
+    else:
+        return x
+
 
 
 # for replacing model names in latek table
@@ -85,6 +137,10 @@ mreplace_dict['SSL_VAE'] = 'SSL-VAE'
 mreplace_dict['VAT'] = 'VAT'
 mreplace_dict['ENTROPY_MINIMISATION'] = 'ENT-MIN'
 mreplace_dict['LABEL_PROPAGATION'] = 'L-PROP'
+mreplace_dict['LABEL_PROPAGATION'] = 'L-PROP'
+mreplace_dict['ASSFSCMR'] = 'Adapt-SSFS'
+mreplace_dict['SFAMCAMT'] = 'SSFA-Cor'
+
 mreplace_dict['PARTIAL_SUPERVISED_CLASSIFIER'] = 'P-SUP'
 
 #for formmatting our latek table with legends
@@ -224,21 +280,83 @@ if __name__=='__main__':
         
         
         cols=[c for c in ulab_df_synthetic]
-        
         cols_10000=[c for c in cols if c.endswith('_10000')]
-        
-        
         latek_df_10000=copy_legend_rename(ulab_df_synthetic[cols_10000])
+        #latek_df=copy_legend_rename(all_results)
+        dset_cols=[c for c in latek_df_10000.columns if 'KEY' not in c]
+        fmt_bold_max = {column: partial(bold_formatter, value=get_colmax(latek_df_10000[column],drop_idx=drop_idx)) for column in dset_cols}
+        fmts = dict(**fmt_bold_max)
         
+        
+        ulab_synthetic_10000_fn="/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_10000.tex"
         
         
         with pd.option_context("max_colwidth", 1000):
-            latek_df_10000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_10000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+            with open(ulab_synthetic_10000_fn, "w", encoding="utf-8") as fh:
+                latek_df_10000.to_latex(buf=fh,
+                                escape=False,
+                                column_format='rcccccccc',
+                                formatters=fmts)
 
+        # with pd.option_context("max_colwidth", 1000):
+        #     latek_df_10000.to_latex(ulab_synthetic_10000_fn,encoding='utf-8', escape=False,column_format='rcccccccc')
 
+        import sys
+        #exit here cos don't need real reasults anymore..............
+        #sys.exit()
+                
+        with open(ulab_synthetic_10000_fn,'r') as f:
+            lines=f.read()
 
+        lines=lines.replace('nan ± nan','-')
+        
+        with open(ulab_synthetic_10000_fn,'w') as f:
+            f.write(lines)
+        
+        # old_columns=[c for c in all_results.columns]
+        
+        # dropcols=[c for c in old_columns if '_5000' in c or '_10000' in c]
+        
+        
+        # all_results=all_results.drop(columns=dropcols)
+
+        # if EXPORT_LATEK:
+        #     latek_df=copy_legend_rename(all_results)
+        #     dset_cols=[c for c in latek_df.columns if 'KEY' not in c]
+        #     fmt_bold_max = {column: partial(bold_formatter, value=get_colmax(latek_df[column])) for column in
+        #                     dset_cols}
+        #     fmts = dict(**fmt_bold_max)
+
+        #     with pd.option_context("max_colwidth", 1000):
+        #         with open("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/all_combined_results.tex", "w", encoding="utf-8") as fh:
+        #             latek_df.to_latex(buf=fh,
+        #                             escape=False,
+        #                             column_format='rccccccccccc',
+        #                             formatters=fmts)
+
+            
+        # latek_df=copy_legend_rename(all_results)
+        # dset_cols=[c for c in latek_df.columns if 'KEY' not in c]
+        # fmt_bold_max = {column: partial(bold_formatter, value=get_colmax(latek_df[column])) for column in
+        #                 dset_cols}
+        # fmts = dict(**fmt_bold_max)
+            
+
+        #lfn='/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_5000.tex'
+        
+        # with open(ulab_synthetic_10000_fn,'r') as f:
+        #     lines=f.read()
+
+        # lines=lines.replace('nan ± nan','-')
+        
+        # with open(ulab_synthetic_10000_fn,'w') as f:
+        #     f.write(lines)
+            
 
         
+        
+        
+                
         cols=[c for c in ulab_df_synthetic]
         
         cols_5000=[c for c in cols if c.endswith('_5000')]
@@ -246,11 +364,111 @@ if __name__=='__main__':
         
         latek_df_5000=copy_legend_rename(ulab_df_synthetic[cols_5000])
         
+        #latek_df=copy_legend_rename(all_results)
+        dset_cols=[c for c in latek_df_5000.columns if 'KEY' not in c]
+        fmt_bold_max = {column: partial(bold_formatter, value=get_colmax(latek_df_5000[column],drop_idx=drop_idx)) for column in dset_cols}
+        fmts = dict(**fmt_bold_max)
+        
+        
+        #ulab_synthetic_10000_fn="/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_10000.tex"
+        ulab_synthetic_5000_fn="/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_5000.tex"
         
         
         with pd.option_context("max_colwidth", 1000):
-            latek_df_5000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_5000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+            with open(ulab_synthetic_5000_fn, "w", encoding="utf-8") as fh:
+                latek_df_5000.to_latex(buf=fh,
+                                escape=False,
+                                column_format='rcccccccc',
+                                formatters=fmts)
+                
 
+        
+        with open(ulab_synthetic_5000_fn,'r') as f:
+            lines=f.read()
+
+        lines=lines.replace('nan ± nan','-')
+        
+        with open(ulab_synthetic_5000_fn,'w') as f:
+            f.write(lines)
+            
+        #lfn='/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_5000.tex'
+        
+        # with open(ulab_synthetic_5000_fn,'r') as f:
+        #     lines=f.read()
+
+        # lines=lines.replace('nan ± nan','-')
+        
+        # with open(ulab_synthetic_5000_fn,'w') as f:
+        #     f.write(lines)
+            
+            
+            
+        cols=[c for c in ulab_df_synthetic]
+        cols_5000=[c for c in cols if c.endswith('_5000')]
+        cols_10000=[c for c in cols if c.endswith('_10000')]
+        
+        exclude_cols=cols_5000+cols_10000
+        
+        remain_cols=[c for c in ulab_df_synthetic if c not in exclude_cols]
+        
+        
+        latek_df_2000=copy_legend_rename(ulab_df_synthetic[remain_cols])
+        
+        
+        
+        #latek_df_5000=copy_legend_rename(ulab_df_synthetic[cols_5000])
+        
+        #latek_df=copy_legend_rename(all_results)
+        dset_cols=[c for c in latek_df_2000.columns if 'KEY' not in c]
+        fmt_bold_max = {column: partial(bold_formatter, value=get_colmax(latek_df_2000[column],drop_idx)) for column in dset_cols}
+        fmts = dict(**fmt_bold_max)
+        
+        
+        #ulab_synthetic_10000_fn="/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_10000.tex"
+        ulab_synthetic_2000_fn="/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_2000.tex"
+        
+        
+        with pd.option_context("max_colwidth", 1000):
+            with open(ulab_synthetic_2000_fn, "w", encoding="utf-8") as fh:
+                latek_df_2000.to_latex(buf=fh,
+                                escape=False,
+                                column_format='rcccccccc',
+                                formatters=fmts)
+        
+        
+        
+        print('pausing here')
+        
+        
+        
+        
+        
+        # ulab_synthetic_remain_fn="/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_2000.tex"
+        
+        # with pd.option_context("max_colwidth", 1000):
+        #     latek_df_2000.to_latex(ulab_synthetic_remain_fn,encoding='utf-8', escape=False,column_format='rcccccccc')
+            
+            
+            
+
+        #lfn='/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_5000.tex'
+        
+        with open(ulab_synthetic_2000_fn,'r') as f:
+            lines=f.read()
+
+        lines=lines.replace('nan ± nan','-')
+        
+        with open(ulab_synthetic_2000_fn,'w') as f:
+            f.write(lines)
+            
+
+
+        # lfns='/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_5000_format.tex'
+
+
+        #import sys
+        
+        #sys.exit()
 
 
 
@@ -275,19 +493,19 @@ if __name__=='__main__':
 
 
 
-        cols=[c for c in ulab_df_synthetic]
-        try:
-            cols_100000=[c for c in cols if c.endswith('_100000')]
+        # cols=[c for c in ulab_df_synthetic]
+        # try:
+        #     cols_100000=[c for c in cols if c.endswith('_100000')]
             
             
-            latek_df_100000=copy_legend_rename(ulab_df_synthetic[cols_100000])
+        #     latek_df_100000=copy_legend_rename(ulab_df_synthetic[cols_100000])
             
             
             
-            with pd.option_context("max_colwidth", 1000):
-                latek_df_100000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_100000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
-        except:
-            continue
+        #     with pd.option_context("max_colwidth", 1000):
+        #         latek_df_100000.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/unlabelled_synthetic_results_100000.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
+        # except:
+        #     continue
         
         
 
@@ -399,7 +617,6 @@ if __name__=='__main__':
 
 
 
-
         cols=[c for c in test_df]
         cols_5000=[c for c in cols if c.endswith('_5000')]
         latek_df_5000=copy_legend_rename(test_df[cols_5000])
@@ -425,12 +642,13 @@ if __name__=='__main__':
 
 
 
-
-
         # with pd.option_context("max_colwidth", 1000):
         #     latek_df.to_latex("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/test_synthetic_results.tex",encoding='utf-8', escape=False,column_format='rcccccccc')
 
-
+    #import sys
+    
+    #sys.exit()
+    
     writer.close()
 
     print('pausing here')
@@ -442,18 +660,22 @@ if __name__=='__main__':
 
     list_of_models = ['FULLY_SUPERVISED_CLASSIFIER',
                       'CGAN_BASIC_SUPERVISED_CLASSIFIER',
-                      # 'CGAN_BASIC_DJ_SUPERVISED_CLASSIFIER',
+                        'CGAN_BASIC_DJ_SUPERVISED_CLASSIFIER',
                       'CGAN_GUMBEL_SUPERVISED_CLASSIFIER',
-                      # 'CGAN_GUMBEL_DJ_SUPERVISED_CLASSIFIER',
+                      'CGAN_GUMBEL_DJ_SUPERVISED_CLASSIFIER',
                       'SSL_GAN',
                       'TRIPLE_GAN',
                       'SSL_VAE',
                       'VAT',
                       'ENTROPY_MINIMISATION',
                       'LABEL_PROPAGATION',
+                        'ASSFSCMR',
+                    'SFAMCAMT',
                       'PARTIAL_SUPERVISED_CLASSIFIER']
 
-    candidate_names = ['real_sachs_mek_log', 'real_sachs_raf_log', 'real_bcancer_diagnosis_zscore']
+    #candidate_names = ['real_sachs_mek_log', 'real_sachs_raf_log', 'real_bcancer_diagnosis_zscore']
+    candidate_names = ['real_sachs_raf_log', 'real_sachs_mek_log','real_bcancer_diagnosis_zscore']
+    
     rename_keys = {k: '' for k in candidate_names}
     rename_keys['real_sachs_mek_log'] = 'MEK'
     rename_keys['real_sachs_raf_log'] = 'RAF'
@@ -465,6 +687,14 @@ if __name__=='__main__':
     rename_keys['n36_gaussian_mixture_d5'] = 'CG5'
     rename_keys['n36_gaussian_mixture_d6'] = 'CG6'
     rename_keys['n36_gaussian_mixture_d7'] = 'CG7'
+    
+    rename_keys['n36_gaussian_mixture_d1_10000'] = 'CG1'
+    rename_keys['n36_gaussian_mixture_d2_10000'] = 'CG2'
+    rename_keys['n36_gaussian_mixture_d3_10000'] = 'CG3'
+    rename_keys['n36_gaussian_mixture_d4_10000'] = 'CG4'
+    rename_keys['n36_gaussian_mixture_d5_10000'] = 'CG5'
+    rename_keys['n36_gaussian_mixture_d6_10000'] = 'CG6'
+    rename_keys['n36_gaussian_mixture_d7_10000'] = 'CG7'
     # for replacing model names in latek table
     mreplace_dict = {k: '' for k in list_of_models}
     mreplace_dict['FULLY_SUPERVISED_CLASSIFIER'] = 'F-SUP'
@@ -476,6 +706,9 @@ if __name__=='__main__':
     mreplace_dict['VAT'] = 'VAT'
     mreplace_dict['ENTROPY_MINIMISATION'] = 'ENT-MIN'
     mreplace_dict['LABEL_PROPAGATION'] = 'L-PROP'
+    mreplace_dict['ASSFSCMR'] = 'Adapt-SSFS'
+    mreplace_dict['SFAMCAMT'] = 'SSFA-Cor'
+
     mreplace_dict['PARTIAL_SUPERVISED_CLASSIFIER'] = 'P-SUP'
 
 
@@ -596,6 +829,12 @@ if __name__=='__main__':
     drop_idx=['CGAN_BASIC_DJ_SUPERVISED_CLASSIFIER','CGAN_GUMBEL_DJ_SUPERVISED_CLASSIFIER']
 
     EXPORT_LATEK=True
+    
+    
+    
+    
+    
+    
     if EXPORT_LATEK:
         latek_df=copy_legend_rename(ulab_df_real)
         with pd.option_context("max_colwidth", 1000):
@@ -612,47 +851,10 @@ if __name__=='__main__':
     all_results=pd.concat([ulab_df_synthetic,ulab_df_real],axis=1)
 
 
-    def bold_formatter(x, value):
-        """Format a number in bold when (almost) identical to a given value.
-
-        Args:
-            x: Input number.
-
-            value: Value to compare x with.
-
-            num_decimals: Number of decimals to use for output format.
-
-        Returns:
-            String converted output.
-
-        """
-        # Consider values equal, when rounded results are equal
-        # otherwise, it may look surprising in the table where they seem identical
-        if x == value:
-            return f"\\textbf{{{x}}}"
-        else:
-            return x
-
 
     drop_idx = ['n', 'P-SUP','F-SUP']
 
 
-    def get_colmax(in_col, drop_idx=drop_idx):
-        # takes in_col as pd series (column) and returns the max value when interpreted as value+-error
-        # drop some columns...
-        #in_col.loc['F-SUP']='-100 ± 100'
-        in_values = in_col.drop(drop_idx).values
-        in_values = [v.replace('nan ± nan','-100 ± 100') for v in in_values]
-        in_values = [v.replace('-', '-100 ± 100') for v in in_values]
-        values = [v.split(' ± ')[0] for v in in_values]
-        values = [float(v) for v in values]
-        values = np.array(values)
-        max_idx = np.argmax(values)
-        max_instance = in_values[max_idx]
-        return (max_instance)
-
-
-    from functools import partial
 
     #replace values in results
 
@@ -665,14 +867,21 @@ if __name__=='__main__':
 
     import sys
     #exit here cos don't need real reasults anymore..............
-    sys.exit()
+    #sys.exit()
     
-    all_results=all_results.drop(columns=['real_sachs_mek_log'])
+    
+    old_columns=[c for c in all_results.columns]
+    
+    #dropcols=[c for c in old_columns if '_5000' in c or '_10000' in c]
+    dropcols=[c for c in old_columns if ('_10000' not in c and 'real' not in c)]
+    
+    
+    all_results=all_results.drop(columns=dropcols)
 
     if EXPORT_LATEK:
         latek_df=copy_legend_rename(all_results)
         dset_cols=[c for c in latek_df.columns if 'KEY' not in c]
-        fmt_bold_max = {column: partial(bold_formatter, value=get_colmax(latek_df[column])) for column in
+        fmt_bold_max = {column: partial(bold_formatter, value=get_colmax(latek_df[column],drop_idx=drop_idx)) for column in
                         dset_cols}
         fmts = dict(**fmt_bold_max)
 
@@ -685,6 +894,7 @@ if __name__=='__main__':
 
 
 
+    print('pausing here')
 
 
 

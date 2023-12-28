@@ -13,6 +13,7 @@ from typing import Optional
 
 
 
+from IPython.core.debugger import set_trace
 
 
 
@@ -97,16 +98,21 @@ class VATLoss(pl.LightningModule):
 
 
 
-cur_model_name='VAT'
+#cur_model_name='VAT'
 
 
 class VATClassifier(pl.LightningModule):
-    def __init__(self,d_n,s_i,xi,eps,ip,alpha,lr,lmda,input_dim,output_dim,dn_log,tot_bsize=None,best_value=None):
+    def __init__(self,d_n,s_i,xi,eps,ip,alpha,lr,lmda,input_dim,output_dim,dn_log,tot_bsize=None,best_value=None,gen_layers=[100,5],current_model_name='VAT'):
         super().__init__()
         
         self.save_hyperparameters()
 
-        self.classifier=get_standard_net(input_dim,output_dim)
+        # self.classifier=get_standard_net(input_dim,output_dim)
+        
+        self.classifier = make_mlp(input_dim=input_dim,
+                            hidden_layers=gen_layers,
+                            output_dim=2) #n classes = 2
+        
 
         self.vat_loss = VATLoss(xi=self.hparams['xi'], eps=self.hparams['eps'], ip=self.hparams['ip'])
 
@@ -114,7 +120,26 @@ class VATClassifier(pl.LightningModule):
 
         self.val_accs=[]
 
-        self.model_name=cur_model_name
+        self.model_name=current_model_name
+        
+        
+        #alpha, input_dim,output_dim,dn_log,tot_bsize=None,best_value=None,current_model_name='SSL_GAN',disc_layers=[100,5],gen_layers=[100,5]):
+        # super().__init__()
+
+        # self.save_hyperparameters()
+        
+        
+        
+        # self.gen = make_mlp(input_dim=input_dim,
+        #                     hidden_layers=gen_layers,
+        #                     output_dim=input_dim)
+        
+        
+        # self.disc = make_mlp(input_dim=input_dim,
+        #                     hidden_layers=disc_layers,
+        #                     output_dim=output_dim)
+                
+
 
 
 
@@ -139,6 +164,9 @@ class VATClassifier(pl.LightningModule):
 
         #labelled loss
         output = self.classifier(x_l) #predict
+        
+        
+        #set_trace()
         classification_loss = self.ce_loss(output, y_l) #get cross entropy loss
 
         #combine both loss terms
@@ -342,18 +370,11 @@ class SSLDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         #has_gpu=torch.cuda.is_available()
-        if has_gpu:
-            return DataLoader(self.data_train, batch_size=self.tot_bsize, shuffle=True)
-        else:
-            return DataLoader(self.data_train, batch_size=self.tot_bsize, shuffle=True)
+        return DataLoader(self.data_train, batch_size=self.tot_bsize, shuffle=True)
 
     def val_dataloader(self):
-        has_gpu=torch.cuda.is_available()
 
-        if has_gpu:
-            return DataLoader(self.data_validation, batch_size=self.nval)
-        else:
-            return DataLoader(self.data_validation, batch_size=self.nval)
+        return DataLoader(self.data_validation, batch_size=self.nval)
 
 
 
@@ -586,12 +607,17 @@ if __name__ == '__main__':
 
         print('pausing here')
         print('plotting decision boundaries (plotly)')
+        
+        
+        args.plot_decision_boundaries=False
+        
+        if args.plot_decision_boundaries:
 
-        # PLOT HARD DECISION BOUNDARY
-        plot_decision_boundaries_plotly(dspec, si_iter, args, optimal_model, hard=True, output_html=False)
+            # PLOT HARD DECISION BOUNDARY
+            plot_decision_boundaries_plotly(dspec, si_iter, args, optimal_model, hard=True, output_html=False)
 
-        # PLOT SOFT (CONTINUOUS) DECISION BOUNDARY
-        plot_decision_boundaries_plotly(dspec, si_iter, args, optimal_model, hard=False, output_html=False)
+            # PLOT SOFT (CONTINUOUS) DECISION BOUNDARY
+            plot_decision_boundaries_plotly(dspec, si_iter, args, optimal_model, hard=False, output_html=False)
 
 
         # DELETE OPTIMALS SO CAN RESTART IF DOING MULTIPLE S_I

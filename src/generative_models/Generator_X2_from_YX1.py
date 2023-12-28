@@ -21,6 +21,9 @@ class Generator_X2_from_YX1(pl.LightningModule):
                  middle_layer_size,
                  n_lab,
                  n_ulab,
+                 sel_device='gpu',
+                 precision=32,
+                 
                  label_batch_size=4,
                  unlabel_batch_size=256,
                  labmda_U=1.0, #lambda for unlabelled data...
@@ -49,8 +52,21 @@ class Generator_X2_from_YX1(pl.LightningModule):
         self.input_dim=input_dim
         self.output_dim=output_dim
         
-        #self.automatic_optimization=False
         
+        self.hparams.s_i=torch.tensor(float(self.hparams.s_i),device=torch.device('cuda'))
+        self.hparams.dn_log=torch.tensor(float(self.hparams.dn_log),device=torch.device('cuda'))
+        
+        #self.automatic_optimization=False
+        self.s_i=torch.tensor(float(self.hparams.s_i),device=torch.device('cuda'))
+        self.dn_log=torch.tensor(float(self.hparams.dn_log),device=torch.device('cuda'))
+        
+        
+        self.precision=int(precision)
+        self.sel_device=sel_device
+        
+        
+        self.conditional_on_y=True
+
 
     def forward(self, z):
         # in lightning, forward defines the prediction/inference actions
@@ -61,6 +77,44 @@ class Generator_X2_from_YX1(pl.LightningModule):
     #def on_train_start(self):
      #   self.logger.log_hyperparams(self.hparams, {"hp/metric_1_val_mmd": 0, 
       #                                             "hp/metric_2_trans_mmd": 0})
+
+
+
+    def set_precompiled(self,dop):
+        
+        sel_device=self.sel_device
+                
+        sel_dtype=torch.float32
+        if self.precision==16:
+            sel_dtype=torch.float16
+            
+        if 'gpu' in sel_device or 'cuda' in sel_device:
+            sel_device=torch.device('cuda')
+        else:
+            sel_device=torch.device('cpu')
+            
+        
+        self.sigma_list_target_x=torch.tensor([self.hparams.median_pwd_tx * x for x in [0.125, 0.25, 0.5, 1, 2]],dtype=sel_dtype,device=sel_device)
+        self.sigma_list_cond_x=torch.tensor([self.hparams.median_pwd_cx * x for x in [0.125, 0.25, 0.5, 1, 2]],dtype=sel_dtype,device=sel_device)
+            
+        
+        #rbf_kern=dop['mix_rbf_mmd2']
+        #X=torch.randn((4,2),dtype=torch.float16,device=torch.device('cuda'))
+        
+        #dummy=rbf_kern(X,X)
+        
+        #self.rbf_kern=rbf_kern
+        
+        
+        
+        self.dop=dop
+        
+    def delete_compiled_modules(self):
+        
+        del self.rbf_kern
+        
+        return self
+
 
 
     def training_step(self, batch, batch_idx):
@@ -156,18 +210,32 @@ class Generator_X2_from_YX1(pl.LightningModule):
             #return(loss)
 
         else:
-            lab_loss=mix_rbf_mmd2_joint_regress(x_hat,
+            
+            lab_loss = self.dop['mix_rbf_mmd2_joint_regress_2_feature_1_label'](x_hat,
                                             target_x,
                                             conditional_x,
                                             conditional_x,
                                             y,
                                             y,
-                                            sigma_list=sigma_list_target_x,
-                                            sigma_list1=sigma_list_conditional_x)
-            # get batch size for balancing contrib of label / unlabel
+                                            self.sigma_list_target_x,
+                                            self.sigma_list_cond_x)
+            
+            # mix_rbf_mmd2_joint_1_feature_1_label
+            # mix_rbf_mmd2_joint_regress_2_feature
+            # mix_rbf_mmd2
+            # lab_loss=mix_rbf_mmd2_joint_regress(x_hat,
+            #                                 target_x,
+            #                                 conditional_x,
+            #                                 conditional_x,
+            #                                 y,
+            #                                 y,
+            #                                 sigma_list=sigma_list_target_x,
+            #                                 sigma_list1=sigma_list_conditional_x)
+            # # get batch size for balancing contrib of label / unlabel
             cbatch_size = float(z.shape[0])
             #ratio_cbatch = cbatch_size / self.hparams.n_lab
             #loss *= ratio_cbatch
+            #lab_loss = self.dop['mix_rbf_mmd2_joint_regress_2_feature'](x_hat,
 
             
 
@@ -237,12 +305,23 @@ class Generator_X2_from_YX1(pl.LightningModule):
             #return (loss)
         else:
 
-            ulab_loss=mix_rbf_mmd2_joint_regress(x_hat,
+
+            
+            ulab_loss = self.dop['mix_rbf_mmd2_joint_regress_2_feature'](x_hat,
                                             target_x,
                                             conditional_x,
                                             conditional_x,
-                                            sigma_list=sigma_list_target_x,
-                                            sigma_list1=sigma_list_conditional_x)
+                                            self.sigma_list_target_x,
+                                            self.sigma_list_cond_x)
+
+
+
+            # ulab_loss=mix_rbf_mmd2_joint_regress(x_hat,
+            #                                 target_x,
+            #                                 conditional_x,
+            #                                 conditional_x,
+            #                                 sigma_list=sigma_list_target_x,
+            #                                 sigma_list1=sigma_list_conditional_x)
 
             # get batch size for balancing contrib of label / unlabel
             ulab_loss *=self.hparams.labmda_U
@@ -341,14 +420,40 @@ class Generator_X2_from_YX1(pl.LightningModule):
         x_hat=self.gen(gen_input) #generate x samples random
         #get rbf mmd2 joint
         
+        
+        
+        # vfc_clone=val_feat_cond
+        # vft_clone=val_feat_target
+
+        # val_mmd_loss = self.dop['mix_rbf_mmd2_joint_regress_2_feature_1_label'](x_hat,
+        #                             vft_clone,
+        #                             vfc_clone,
+        #                             vfc_clone,
+        #                             val_y_oh,
+        #                             val_y_oh,
+        #                         self.sigma_list_target_x,
+        #                         self.sigma_list_cond_x).detach()
+            
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
         val_mmd_loss=mix_rbf_mmd2_joint_regress(x_hat,
                                                 val_feat_target,
                                                 val_feat_cond,
                                                 val_feat_cond,
                                                 val_y_oh,
                                                 val_y_oh,
-                                                sigma_list=sigma_list_target_x,
-                                                sigma_list1=sigma_list_conditional_x)
+                                                sigma_list=self.sigma_list_target_x,
+                                                sigma_list1=self.sigma_list_cond_x)
         
         #joint mmd transduction
         
@@ -361,34 +466,52 @@ class Generator_X2_from_YX1(pl.LightningModule):
         gen_input=torch.cat((noise,trans_feat_cond,trans_y_oh),1).float() #concatentate noise with label info
         x_hat=self.gen(gen_input) #generate x samples random
         #get rbf mmd2 joint
-        trans_mmd_loss=mix_rbf_mmd2_joint_regress(x_hat,
-                                                  trans_feat_target,
-                                                  trans_feat_cond,
-                                                  trans_feat_cond,
-                                                  trans_y_oh,
-                                                  trans_y_oh,
-                                                  sigma_list=sigma_list_target_x,
-                                                  sigma_list1=sigma_list_conditional_x)
-        trans_mmd_loss =mix_rbf_mmd2(x_hat,trans_feat_target,sigma_list=sigma_list_target_x)
+        # trans_mmd_loss=mix_rbf_mmd2_joint_regress(x_hat,
+        #                                           trans_feat_target,
+        #                                           trans_feat_cond,
+        #                                           trans_feat_cond,
+        #                                           trans_y_oh,
+        #                                           trans_y_oh,
+        #                                           sigma_list=sigma_list_target_x,
+        #                                           sigma_list1=sigma_list_conditional_x)
+        
+        
+        tft_clone=trans_feat_target
+        
+        trans_mmd_loss =self.dop['mix_rbf_mmd2'](x_hat,tft_clone,self.sigma_list_target_x).detach()
+            
+        
+        
+        
+        
+        
+        #trans_mmd_loss =mix_rbf_mmd2(x_hat,trans_feat_target,sigma_list=sigma_list_target_x)
 
 
-        self.log("val_mmd", val_mmd_loss)
-        self.log("trans_mmd",trans_mmd_loss)
         
-        self.vmmd_losses.append(val_mmd_loss.detach().item())
+        #self.vmmd_losses.append(val_mmd_loss.detach().item())
         
         
         
+        val_trans_mmd_loss=val_mmd_loss + trans_mmd_loss
+        
+        self.log("val_trans_mmd",val_trans_mmd_loss)
+        
+        #self.log("val_mmd", val_mmd_loss)
+        #self.log("trans_mmd",trans_mmd_loss)
         
         
         
-        self.log("hp_metric", min(self.vmmd_losses))
-        print('val mmd loss: {0}'.format(val_mmd_loss))
-        print('t mmd loss: {0}'.format(trans_mmd_loss))
+        #self.log("hp_metric", min(self.vmmd_losses))
+        print('val_ mmd: {0}'.format(val_mmd_loss))
+        print('tranas_ mmd: {0}'.format(trans_mmd_loss))
+        print('val_trans_mmd: {0}'.format(val_trans_mmd_loss))
+        print('val_trans_mmd: {0}'.format(val_trans_mmd_loss))
+        #print('t mmd loss: {0}'.format(trans_mmd_loss))
 
-        self.log("s_i",self.hparams.s_i)
+        self.log("s_i",self.s_i)
 
             
-        self.log("d_n",self.hparams.dn_log)
+        self.log("d_n",self.dn_log)
         return(self)
         

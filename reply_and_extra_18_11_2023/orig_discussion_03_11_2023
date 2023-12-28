@@ -114,6 +114,11 @@ Some very related references should be included in the revision, i.e. "Semisuper
 
 "Adaptive Semi-Supervised Feature Selection for Cross-Modal Retrieval". demonstrates compelling results. 
 
+Semisupervised Feature Analysis by Mining Correlations Among Multiple Tasks
+
+Adaptive Semi-Supervised Feature Selection for Cross-Modal Retrieval"
+
+
 Specifically have tried with two feature variables. COnsidering how to use three features. Ther are some erros in their paper / algorithm. I think I have figured out the imstakes  in the notation in their paper
 
 

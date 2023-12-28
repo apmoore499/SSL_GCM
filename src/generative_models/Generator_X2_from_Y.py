@@ -18,6 +18,9 @@ class Generator_X2_from_Y(pl.LightningModule):
                  middle_layer_size,
                  n_lab,
                  n_ulab,
+                 sel_device='gpu',
+                 precision=32,
+
                  label_batch_size=4,
                  unlabel_batch_size=256,
                  feature_dim=2,
@@ -59,6 +62,13 @@ class Generator_X2_from_Y(pl.LightningModule):
         self.hparams.dn_log=torch.tensor(float(self.hparams.dn_log),device=torch.device('cuda'))
         
         #self.automatic_optimization=False
+        
+        
+        self.precision=int(precision)
+        self.sel_device=sel_device
+
+
+        self.conditional_on_y=True
 
     def forward(self, z):
         # in lightning, forward defines the prediction/inference actions
@@ -70,6 +80,39 @@ class Generator_X2_from_Y(pl.LightningModule):
         #self.target_x_labelled=target_x_labelled
         #self.target_y_labelled=target_y_labelled
 
+    def set_precompiled(self,dop):
+        
+        sel_device=self.sel_device
+                
+        sel_dtype=torch.float32
+        if self.precision==16:
+            sel_dtype=torch.float16
+            
+        if 'gpu' in sel_device or 'cuda' in sel_device:
+            sel_device=torch.device('cuda')
+        else:
+            sel_device=torch.device('cpu')
+            
+        
+        self.sigma_list=torch.tensor([self.hparams.median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]],dtype=sel_dtype,device=sel_device)
+            
+        
+        rbf_kern=dop['mix_rbf_mmd2']
+        #X=torch.randn((4,2),dtype=torch.float16,device=torch.device('cuda'))
+        
+        #dummy=rbf_kern(X,X)
+        
+        #self.rbf_kern=rbf_kern
+        
+        
+        
+        self.dop=dop
+        
+    def delete_compiled_modules(self):
+        
+        del self.rbf_kern
+        
+        return self
 
 
 
@@ -105,12 +148,33 @@ class Generator_X2_from_Y(pl.LightningModule):
         #y=torch.nn.functional.one_hot(y)
         
         #cat input...
-        gen_input=torch.cat((self.noise_placeholder_train[:x_l.shape[0]],y_l),1).float()
+        gen_input=torch.cat((self.noise_placeholder_train[:x_l.shape[0]],y_l),1)#.float()
         
         #prediction
         x_hat=self.gen(gen_input)
         y_l=y_l.float()
-        lab_loss=mix_rbf_mmd2_joint(x_hat,x_l,y_l,y_l,sigma_list=sigma_list)
+        
+        
+        #lab_loss=mix_rbf_mmd2_joint(x_hat,x_l,y_l,y_l,sigma_list=sigma_list)
+        
+        
+        lab_loss=self.dop['mix_rbf_mmd2_joint_1_feature_1_label'](x_hat,x_l,y_l,y_l,self.sigma_list)
+        
+        
+        #dict_of_precompiled['mix_rbf_mmd2']=torch.compile(mix_rbf_mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        #dict_of_precompiled['mix_rbf_mmd2_joint_1_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_1_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        #dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
 
         self.log('labelled_mmd_loss', lab_loss)
             #return(loss)
@@ -126,10 +190,21 @@ class Generator_X2_from_Y(pl.LightningModule):
         x_u=x_u.reshape((-1,self.hparams['output_dim']))
         #z=torch.randn_like(x_u)
         #y=torch.nn.functional.onehot(y)
-        gen_input=torch.cat((self.noise_placeholder_train[:x_u.shape[0]],y_u),1).float()
+        gen_input=torch.cat((self.noise_placeholder_train[:x_u.shape[0]],y_u),1)#.float()
         #prediction
         x_hat=self.gen(gen_input)
-        ulab_loss=mix_rbf_mmd2(x_hat,x_u,sigma_list=sigma_list)
+        #ulab_loss=mix_rbf_mmd2(x_hat,x_u,sigma_list=sigma_list)
+        
+        
+        ulab_loss=self.dop['mix_rbf_mmd2'](x_hat,x_u,self.sigma_list)
+        
+        
+        
+        
+        
+        
+        
+        
         # get batch size
         # cbatch_size = float(z.shape[0])
         # ratio_cbatch = cbatch_size / self.hparams.n_ulab

@@ -48,12 +48,14 @@ class SSLDataModule_Unlabel_X(pl.LightningDataModule):
 
 
     def train_dataloader(self):
-        return DataLoader(self.data_train, batch_size=self.batch_size,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True,pin_memory=True)
+        return DataLoader(self.data_train, batch_size=self.batch_size)#,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True,pin_memory=True)
+        #return DataLoader(self.data_train, batch_size=self.batch_size,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True,pin_memory=True)
 
 
     def val_dataloader(self):
         #return AsynchronousLoader(DataLoader(self.data_validation, batch_size=1),device=torch.device('cuda'))
-        return DataLoader(self.data_validation, batch_size=self.batch_size,num_workers=NUM_WORKERS,persistent_workers=True,pin_memory=True)
+        return DataLoader(self.data_validation, batch_size=self.batch_size)#,num_workers=NUM_WORKERS,persistent_workers=True,pin_memory=True)
+        #return DataLoader(self.data_validation, batch_size=self.batch_size,num_workers=NUM_WORKERS,persistent_workers=True,pin_memory=True)
 
 # class SSLDataModule_X_from_Y(pl.LightningDataModule):
 #     def __init__(self,
@@ -450,7 +452,7 @@ class SSLDataModule_X_from_Y(pl.LightningDataModule):
 
     def train_dataloader(self):
         #labelled_loader=torch.utils.data.DataLoader(self.data_train_labelled,batch_size=self.labelled_batch_size,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True,pin_memory=True)
-        unlabelled_loader=torch.utils.data.DataLoader(self.data_train_unlabelled,batch_size=self.unlabelled_batch_size,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True,pin_memory=True)
+        unlabelled_loader=torch.utils.data.DataLoader(self.data_train_unlabelled,batch_size=self.unlabelled_batch_size)#,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True,pin_memory=True)
 
         return unlabelled_loader
 
@@ -467,7 +469,7 @@ class SSLDataModule_X_from_Y(pl.LightningDataModule):
 
 
     def val_dataloader(self):
-        return DataLoader(self.data_validation, batch_size=1,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True,pin_memory=True)
+        return DataLoader(self.data_validation, batch_size=1)#,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True,pin_memory=True)
 
 
 
@@ -599,7 +601,7 @@ class SSLDataModule_Y_from_X(pl.LightningDataModule):
         return(self)
 
     def train_dataloader(self):
-        return DataLoader(self.data_train, batch_size=self.batch_size,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True)
+        return DataLoader(self.data_train, batch_size=self.batch_size)#,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True)
 
     def val_dataloader(self):
         return DataLoader(self.data_validation, batch_size=self.nval)
@@ -712,8 +714,8 @@ class SSLDataModule_X2_from_Y_and_X1(pl.LightningDataModule):
         return(self)
 
     def train_dataloader(self):
-        labelled_loader=torch.utils.data.DataLoader(self.data_train_labelled,batch_size=self.labelled_batch_size,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True)
-        unlabelled_loader=torch.utils.data.DataLoader(self.data_train_unlabelled,batch_size=self.unlabelled_batch_size,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True)
+        labelled_loader=torch.utils.data.DataLoader(self.data_train_labelled,batch_size=self.labelled_batch_size)#,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True)
+        unlabelled_loader=torch.utils.data.DataLoader(self.data_train_unlabelled,batch_size=self.unlabelled_batch_size)#,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True)
 
 
         loaders = {"loader_labelled":labelled_loader,
@@ -778,7 +780,7 @@ class SSLDataModule_X_from_X(pl.LightningDataModule):
         return(self)
 
     def train_dataloader(self):
-        unlabelled_loader=torch.utils.data.DataLoader(self.entire_feature_dataset,batch_size=self.unlabelled_batch_size,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True)
+        unlabelled_loader=torch.utils.data.DataLoader(self.entire_feature_dataset,batch_size=self.unlabelled_batch_size)#,num_workers=NUM_WORKERS,persistent_workers=True,shuffle=True)
 
         return unlabelled_loader
 

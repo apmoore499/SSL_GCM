@@ -372,6 +372,180 @@ def _mmd2_and_variance(K_XX, K_XY, K_YY, const_diagonal=False, biased=False):
 
 
 
+# #custom compiled kern for if we need to do many mmd per run, speedup
+
+# def _mix_linear_kernel(X, Y):
+#     assert (X.size(0) == Y.size(0))
+#     m = X.size(0)
+
+#     Z = torch.cat((X, Y), 0)
+#     K = torch.mm(Z, Z.t())
+
+#     return K[:m, :m], K[:m, m:], K[m:, m:]
+
+
+
+# class mix_rbf_kernel_class(torch.nn.Module):
+    
+#     def __init__(self,sigma_list):
+#         super(mix_rbf_kernel_class, self).__init__()
+#         self.sigma_list=sigma_list
+        
+
+#     def forward(self,X,Y):
+#         assert (X.size(0) == Y.size(0))
+#         m = X.size(0)
+#         Z = torch.cat((X, Y), 0)
+#         ZZT = torch.mm(Z, Z.t())
+#         diag_ZZT = torch.diag(ZZT).unsqueeze(1)
+#         Z_norm_sqr = diag_ZZT.expand_as(ZZT)
+#         exponent = Z_norm_sqr - 2 * ZZT + Z_norm_sqr.t()
+#         K=torch.sum(torch.exp(exponent[None,:,:].expand(self.sigma_list.shape[0],-1,-1) * -(1.0 / (2 * self.sigma_list ** 2))[:,None,None]), dim=0)
+        
+#         return K[:m, :m], K[:m, m:], K[m:, m:], len(self.sigma_list)
+
+
+# class mix_rbf_mmd2_class(torch.nn.Module):
+    
+#     def __init__(self,sigma_list):
+#         super(mix_rbf_mmd2_class, self).__init__()
+#         self.rbf_kernel=mix_rbf_kernel_class(sigma_list=sigma_list)
+        
+#     def forward(self,X,Y):
+#         K_XX, K_XY, K_YY, d = self.rbf_kernel(X, Y)
+#         m = K_XX.size(0)    # assume X, Y are same shape
+
+#         # # Get the various sums of kernels that we'll use
+#         # # Kts drop the diagonal, but we don't need to compute them explicitly
+#         # if const_diagonal is not False:
+#         #     diag_X = diag_Y = const_diagonal
+#         #     sum_diag_X = sum_diag_Y = m * const_diagonal
+#         # else:
+#         diag_X = torch.diag(K_XX)                       # (m,)
+#         diag_Y = torch.diag(K_YY)                       # (m,)
+#         sum_diag_X = torch.sum(diag_X)
+#         sum_diag_Y = torch.sum(diag_Y)
+
+#         Kt_XX_sums = K_XX.sum(dim=1) - diag_X             # \tilde{K}_XX * e = K_XX * e - diag_X
+#         Kt_YY_sums = K_YY.sum(dim=1) - diag_Y             # \tilde{K}_YY * e = K_YY * e - diag_Y
+#         K_XY_sums_0 = K_XY.sum(dim=0)                     # K_{XY}^T * e
+
+#         Kt_XX_sum = Kt_XX_sums.sum()                       # e^T * \tilde{K}_XX * e
+#         Kt_YY_sum = Kt_YY_sums.sum()                       # e^T * \tilde{K}_YY * e
+#         K_XY_sum = K_XY_sums_0.sum()                       # e^T * K_{XY} * e
+
+#         #if biased:
+#         mmd2 = ((Kt_XX_sum + sum_diag_X) / (m * m)+ (Kt_YY_sum + sum_diag_Y) / (m * m)- 2.0 * K_XY_sum / (m * m))
+#         # else:
+#         #     mmd2 = (Kt_XX_sum / (m * (m - 1))
+#         #         + Kt_YY_sum / (m * (m - 1))
+#         #         - 2.0 * K_XY_sum / (m * m))
+
+#         return mmd2
+        
+
+# # def mix_rbf_mmd2(X, Y, sigma_list, biased=True):
+# #     # return _mmd2(K_XX, K_XY, K_YY, const_diagonal=d, biased=biased)
+# #     return _mmd2(K_XX, K_XY, K_YY, const_diagonal=False, biased=biased)
+
+
+# class mix_rbf_mmd2_joint_1_feature_1_label(torch.nn.Module):
+#     def __init__(self,sigma_list_effect):
+#         super(mix_rbf_mmd2_joint_1_feature_1_label, self).__init__()
+#         self.rbf_effect=mix_rbf_kernel_class(sigma_list=sigma_list_effect)
+#         self.kern_linear=_mix_linear_kernel
+        
+        
+#     def forward(self,X_effect_hat,X_effect_true,Y_lab_hat,Y_lab_true):
+        
+        
+#         K_XX, K_XY, K_YY, d = self.rbf_effect(X_effect_hat,X_effect_true)
+#         K_XX1, K_XY1, K_YY1 = self.kern_linear(Y_lab_hat,Y_lab_true)
+#         K_XX = K_XX * K_XX1
+#         K_YY = K_YY * K_YY1
+#         K_XY = K_XY * K_XY1
+#         m = K_XX.size(0)    # assume X, Y are same shape
+
+#         # # Get the various sums of kernels that we'll use
+#         # # Kts drop the diagonal, but we don't need to compute them explicitly
+#         # if const_diagonal is not False:
+#         #     diag_X = diag_Y = const_diagonal
+#         #     sum_diag_X = sum_diag_Y = m * const_diagonal
+#         # else:
+#         diag_X = torch.diag(K_XX)                       # (m,)
+#         diag_Y = torch.diag(K_YY)                       # (m,)
+#         sum_diag_X = torch.sum(diag_X)
+#         sum_diag_Y = torch.sum(diag_Y)
+
+#         Kt_XX_sums = K_XX.sum(dim=1) - diag_X             # \tilde{K}_XX * e = K_XX * e - diag_X
+#         Kt_YY_sums = K_YY.sum(dim=1) - diag_Y             # \tilde{K}_YY * e = K_YY * e - diag_Y
+#         K_XY_sums_0 = K_XY.sum(dim=0)                     # K_{XY}^T * e
+
+#         Kt_XX_sum = Kt_XX_sums.sum()                       # e^T * \tilde{K}_XX * e
+#         Kt_YY_sum = Kt_YY_sums.sum()                       # e^T * \tilde{K}_YY * e
+#         K_XY_sum = K_XY_sums_0.sum()                       # e^T * K_{XY} * e
+
+#         #if biased:
+#         mmd2 = ((Kt_XX_sum + sum_diag_X) / (m * m)+ (Kt_YY_sum + sum_diag_Y) / (m * m)- 2.0 * K_XY_sum / (m * m))
+#         # else:
+#         #     mmd2 = (Kt_XX_sum / (m * (m - 1))
+#         #         + Kt_YY_sum / (m * (m - 1))
+#         #         - 2.0 * K_XY_sum / (m * m))
+
+#         return mmd2
+    
+    
+
+    
+# class mix_rbf_mmd2_joint_regress_2_feature(torch.nn.Module):
+#     def __init__(self,sigma_list_effect,sigma_list_cause):
+#         super(mix_rbf_mmd2_joint_regress_2_feature, self).__init__()
+#         self.rbf_effect=mix_rbf_kernel_class(sigma_list=sigma_list_effect)
+#         self.rbf_cause=mix_rbf_kernel_class(sigma_list=sigma_list_cause)
+        
+
+#     def forward(self,X_e_hat,X_e_true,X_c_hat,X_c_true):
+#         K_XX, K_XY, K_YY, d = self.rbf_effect(X_e_hat,X_e_true)
+#         K_XX1, K_XY1, K_YY1, d1 = self.rbf_cause(X_c_hat,X_c_true)
+#         K_XX = K_XX * K_XX1
+#         K_YY = K_YY * K_YY1
+#         K_XY = K_XY * K_XY1
+
+#         m = K_XX.size(0)    # assume X, Y are same shape
+
+#         # else:
+#         diag_X = torch.diag(K_XX)                       # (m,)
+#         diag_Y = torch.diag(K_YY)                       # (m,)
+#         sum_diag_X = torch.sum(diag_X)
+#         sum_diag_Y = torch.sum(diag_Y)
+
+#         Kt_XX_sums = K_XX.sum(dim=1) - diag_X             # \tilde{K}_XX * e = K_XX * e - diag_X
+#         Kt_YY_sums = K_YY.sum(dim=1) - diag_Y             # \tilde{K}_YY * e = K_YY * e - diag_Y
+#         K_XY_sums_0 = K_XY.sum(dim=0)                     # K_{XY}^T * e
+
+#         Kt_XX_sum = Kt_XX_sums.sum()                       # e^T * \tilde{K}_XX * e
+#         Kt_YY_sum = Kt_YY_sums.sum()                       # e^T * \tilde{K}_YY * e
+#         K_XY_sum = K_XY_sums_0.sum()                       # e^T * K_{XY} * e
+
+#         #if biased:
+#         mmd2 = ((Kt_XX_sum + sum_diag_X) / (m * m)+ (Kt_YY_sum + sum_diag_Y) / (m * m)- 2.0 * K_XY_sum / (m * m))
+#         # else:
+#         #     mmd2 = (Kt_XX_sum / (m * (m - 1))
+#         #         + Kt_YY_sum / (m * (m - 1))
+#         #         - 2.0 * K_XY_sum / (m * m))
+
+#         return mmd2
+
+
+
+
+
+
+#--------------------JIT
+
+
+#@ remove dependence on sigma list, so can ve pass in as tensor direct
+
 #custom compiled kern for if we need to do many mmd per run, speedup
 
 def _mix_linear_kernel(X, Y):
@@ -387,12 +561,12 @@ def _mix_linear_kernel(X, Y):
 
 class mix_rbf_kernel_class(torch.nn.Module):
     
-    def __init__(self,sigma_list):
+    def __init__(self):
         super(mix_rbf_kernel_class, self).__init__()
-        self.sigma_list=sigma_list
+        #self.sigma_list=sigma_list
         
 
-    def forward(self,X,Y):
+    def forward(self,X,Y,sigma_list):
         assert (X.size(0) == Y.size(0))
         m = X.size(0)
         Z = torch.cat((X, Y), 0)
@@ -400,20 +574,20 @@ class mix_rbf_kernel_class(torch.nn.Module):
         diag_ZZT = torch.diag(ZZT).unsqueeze(1)
         Z_norm_sqr = diag_ZZT.expand_as(ZZT)
         exponent = Z_norm_sqr - 2 * ZZT + Z_norm_sqr.t()
-        K=torch.sum(torch.exp(exponent[None,:,:].expand(self.sigma_list.shape[0],-1,-1) * -(1.0 / (2 * self.sigma_list ** 2))[:,None,None]), dim=0)
+        K=torch.sum(torch.exp(exponent[None,:,:].expand(sigma_list.shape[0],-1,-1) * -(1.0 / (2 * sigma_list ** 2))[:,None,None]), dim=0)
         
-        return K[:m, :m], K[:m, m:], K[m:, m:], len(self.sigma_list)
-            
+        return K[:m, :m], K[:m, m:], K[m:, m:], sigma_list.shape[0]
 
 
-class mix_rbf_mmd2_class(torch.nn.Module):
+
+class mmd2_class(torch.nn.Module):
     
-    def __init__(self,sigma_list):
-        super(mix_rbf_mmd2_class, self).__init__()
-        self.rbf_kernel=mix_rbf_kernel_class(sigma_list=sigma_list)
+    def __init__(self):
+        super(mmd2_class, self).__init__()
+        #self.rbf_kernel=mix_rbf_kernel_class()
         
-    def forward(self,X,Y):
-        K_XX, K_XY, K_YY, d = self.rbf_kernel(X, Y)
+    def forward(self,K_XX, K_XY, K_YY):
+        #K_XX, K_XY, K_YY, d = self.rbf_kernel(X, Y,sigma_list)
         m = K_XX.size(0)    # assume X, Y are same shape
 
         # # Get the various sums of kernels that we'll use
@@ -444,6 +618,46 @@ class mix_rbf_mmd2_class(torch.nn.Module):
 
         return mmd2
         
+
+
+
+class mix_rbf_mmd2_class(torch.nn.Module):
+    
+    def __init__(self):
+        super(mix_rbf_mmd2_class, self).__init__()
+        self.rbf_kernel=mix_rbf_kernel_class()
+        
+    def forward(self,X,Y,sigma_list):
+        K_XX, K_XY, K_YY, d = self.rbf_kernel(X, Y,sigma_list)
+        m = K_XX.size(0)    # assume X, Y are same shape
+
+        # # Get the various sums of kernels that we'll use
+        # # Kts drop the diagonal, but we don't need to compute them explicitly
+        # if const_diagonal is not False:
+        #     diag_X = diag_Y = const_diagonal
+        #     sum_diag_X = sum_diag_Y = m * const_diagonal
+        # else:
+        diag_X = torch.diag(K_XX)                       # (m,)
+        diag_Y = torch.diag(K_YY)                       # (m,)
+        sum_diag_X = torch.sum(diag_X)
+        sum_diag_Y = torch.sum(diag_Y)
+
+        Kt_XX_sums = K_XX.sum(dim=1) - diag_X             # \tilde{K}_XX * e = K_XX * e - diag_X
+        Kt_YY_sums = K_YY.sum(dim=1) - diag_Y             # \tilde{K}_YY * e = K_YY * e - diag_Y
+        K_XY_sums_0 = K_XY.sum(dim=0)                     # K_{XY}^T * e
+
+        Kt_XX_sum = Kt_XX_sums.sum()                       # e^T * \tilde{K}_XX * e
+        Kt_YY_sum = Kt_YY_sums.sum()                       # e^T * \tilde{K}_YY * e
+        K_XY_sum = K_XY_sums_0.sum()                       # e^T * K_{XY} * e
+
+        #if biased:
+        mmd2 = ((Kt_XX_sum + sum_diag_X) / (m * m)+ (Kt_YY_sum + sum_diag_Y) / (m * m)- 2.0 * K_XY_sum / (m * m))
+        # else:
+        #     mmd2 = (Kt_XX_sum / (m * (m - 1))
+        #         + Kt_YY_sum / (m * (m - 1))
+        #         - 2.0 * K_XY_sum / (m * m))
+
+        return mmd2
         
 
 # def mix_rbf_mmd2(X, Y, sigma_list, biased=True):
@@ -452,16 +666,16 @@ class mix_rbf_mmd2_class(torch.nn.Module):
 
 
 class mix_rbf_mmd2_joint_1_feature_1_label(torch.nn.Module):
-    def __init__(self,sigma_list_effect):
+    def __init__(self):
         super(mix_rbf_mmd2_joint_1_feature_1_label, self).__init__()
-        self.rbf_effect=mix_rbf_kernel_class(sigma_list=sigma_list_effect)
+        self.rbf_effect=mix_rbf_kernel_class()
         self.kern_linear=_mix_linear_kernel
         
         
-    def forward(self,X_effect_hat,X_effect_true,Y_lab_hat,Y_lab_true):
+    def forward(self,X_effect_hat,X_effect_true,Y_lab_hat,Y_lab_true,sigma_list_effect):
         
         
-        K_XX, K_XY, K_YY, d = self.rbf_effect(X_effect_hat,X_effect_true)
+        K_XX, K_XY, K_YY, d = self.rbf_effect(X_effect_hat,X_effect_true,sigma_list_effect)
         K_XX1, K_XY1, K_YY1 = self.kern_linear(Y_lab_hat,Y_lab_true)
         K_XX = K_XX * K_XX1
         K_YY = K_YY * K_YY1
@@ -500,15 +714,15 @@ class mix_rbf_mmd2_joint_1_feature_1_label(torch.nn.Module):
 
     
 class mix_rbf_mmd2_joint_regress_2_feature(torch.nn.Module):
-    def __init__(self,sigma_list_effect,sigma_list_cause):
+    def __init__(self):
         super(mix_rbf_mmd2_joint_regress_2_feature, self).__init__()
-        self.rbf_effect=mix_rbf_kernel_class(sigma_list=sigma_list_effect)
-        self.rbf_cause=mix_rbf_kernel_class(sigma_list=sigma_list_cause)
+        self.rbf_effect=mix_rbf_kernel_class()
+        self.rbf_cause=mix_rbf_kernel_class()
         
 
-    def forward(self,X_e_hat,X_e_true,X_c_hat,X_c_true):
-        K_XX, K_XY, K_YY, d = self.rbf_effect(X_e_hat,X_e_true)
-        K_XX1, K_XY1, K_YY1, d1 = self.rbf_cause(X_c_hat,X_c_true)
+    def forward(self,X_e_hat,X_e_true,X_c_hat,X_c_true,sigma_list_effect,sigma_list_cause):
+        K_XX, K_XY, K_YY, d = self.rbf_effect(X_e_hat,X_e_true,sigma_list_effect)
+        K_XX1, K_XY1, K_YY1, d1 = self.rbf_cause(X_c_hat,X_c_true,sigma_list_cause)
         K_XX = K_XX * K_XX1
         K_YY = K_YY * K_YY1
         K_XY = K_XY * K_XY1
@@ -541,9 +755,121 @@ class mix_rbf_mmd2_joint_regress_2_feature(torch.nn.Module):
 
 
 
+    
+class mix_rbf_mmd2_joint_regress_2_feature_1_label(torch.nn.Module):
+    def __init__(self):
+        super(mix_rbf_mmd2_joint_regress_2_feature_1_label, self).__init__()
+        self.rbf_effect=mix_rbf_kernel_class()
+        self.rbf_cause=mix_rbf_kernel_class()
+        self.kern_linear=_mix_linear_kernel
+
+        
+
+    def forward(self,X_e_hat,X_e_true,X_c_hat,X_c_true,Y_hat,Y_true,sigma_list_effect,sigma_list_cause):
+        K_XX, K_XY, K_YY, d = self.rbf_effect(X_e_hat,X_e_true,sigma_list_effect)
+        K_XX1, K_XY1, K_YY1, d1 = self.rbf_cause(X_c_hat,X_c_true,sigma_list_cause)
+        K_XX2, K_XY2, K_YY2 = self.kern_linear(Y_hat, Y_true)
+        
+        
+        K_XX = K_XX * K_XX1 * K_XX2
+        K_YY = K_YY * K_YY1 * K_YY2
+        K_XY = K_XY * K_XY1 * K_XY2
+        
+        #K_XX = K_XX * K_XX1
+        #K_YY = K_YY * K_YY1
+        #K_XY = K_XY * K_XY1
+
+        m = K_XX.size(0)    # assume X, Y are same shape
+
+        # else:
+        diag_X = torch.diag(K_XX)                       # (m,)
+        diag_Y = torch.diag(K_YY)                       # (m,)
+        sum_diag_X = torch.sum(diag_X)
+        sum_diag_Y = torch.sum(diag_Y)
+
+        Kt_XX_sums = K_XX.sum(dim=1) - diag_X             # \tilde{K}_XX * e = K_XX * e - diag_X
+        Kt_YY_sums = K_YY.sum(dim=1) - diag_Y             # \tilde{K}_YY * e = K_YY * e - diag_Y
+        K_XY_sums_0 = K_XY.sum(dim=0)                     # K_{XY}^T * e
+
+        Kt_XX_sum = Kt_XX_sums.sum()                       # e^T * \tilde{K}_XX * e
+        Kt_YY_sum = Kt_YY_sums.sum()                       # e^T * \tilde{K}_YY * e
+        K_XY_sum = K_XY_sums_0.sum()                       # e^T * K_{XY} * e
+
+        #if biased:
+        mmd2 = ((Kt_XX_sum + sum_diag_X) / (m * m)+ (Kt_YY_sum + sum_diag_Y) / (m * m)- 2.0 * K_XY_sum / (m * m))
+        # else:
+        #     mmd2 = (Kt_XX_sum / (m * (m - 1))
+        #         + Kt_YY_sum / (m * (m - 1))
+        #         - 2.0 * K_XY_sum / (m * m))
+
+        return mmd2
 
 
-#--------------------JIT
 
 
 
+
+class mix_rbf_mmd2_joint_regress_3_feature_1_label(torch.nn.Module):
+    def __init__(self):
+        super(mix_rbf_mmd2_joint_regress_3_feature_1_label, self).__init__()
+        self.rbf=mix_rbf_kernel_class()
+        #self.rbf_cause=mix_rbf_kernel_class()
+        self.kern_linear=_mix_linear_kernel
+
+        
+
+    def forward(self,X_e_hat,X_e_true,X_c_hat,X_c_true,X_s_hat,X_s_true,Y_hat,Y_true,sigma_list_effect,sigma_list_cause,sigma_list_spouse):
+        K_XX, K_XY, K_YY, d = self.rbf(X_e_hat,X_e_true,sigma_list_effect)
+        K_XX1, K_XY1, K_YY1, d1 = self.rbf(X_c_hat,X_c_true,sigma_list_cause)
+        K_XX3, K_XY3, K_YY3, d3 = self.rbf(X_s_hat,X_s_true,sigma_list_spouse)
+        K_XX2, K_XY2, K_YY2 = self.kern_linear(Y_hat, Y_true)
+        
+        
+        K_XX = K_XX * K_XX1 * K_XX2 * KXX3
+        K_YY = K_YY * K_YY1 * K_YY2 * KYY3
+        K_XY = K_XY * K_XY1 * K_XY2 * KXY3
+        
+        #K_XX = K_XX * K_XX1
+        #K_YY = K_YY * K_YY1
+        #K_XY = K_XY * K_XY1
+
+        m = K_XX.size(0)    # assume X, Y are same shape
+
+        # else:
+        diag_X = torch.diag(K_XX)                       # (m,)
+        diag_Y = torch.diag(K_YY)                       # (m,)
+        sum_diag_X = torch.sum(diag_X)
+        sum_diag_Y = torch.sum(diag_Y)
+
+        Kt_XX_sums = K_XX.sum(dim=1) - diag_X             # \tilde{K}_XX * e = K_XX * e - diag_X
+        Kt_YY_sums = K_YY.sum(dim=1) - diag_Y             # \tilde{K}_YY * e = K_YY * e - diag_Y
+        K_XY_sums_0 = K_XY.sum(dim=0)                     # K_{XY}^T * e
+
+        Kt_XX_sum = Kt_XX_sums.sum()                       # e^T * \tilde{K}_XX * e
+        Kt_YY_sum = Kt_YY_sums.sum()                       # e^T * \tilde{K}_YY * e
+        K_XY_sum = K_XY_sums_0.sum()                       # e^T * K_{XY} * e
+
+        #if biased:
+        mmd2 = ((Kt_XX_sum + sum_diag_X) / (m * m)+ (Kt_YY_sum + sum_diag_Y) / (m * m)- 2.0 * K_XY_sum / (m * m))
+        # else:
+        #     mmd2 = (Kt_XX_sum / (m * (m - 1))
+        #         + Kt_YY_sum / (m * (m - 1))
+        #         - 2.0 * K_XY_sum / (m * m))
+
+        return mmd2
+
+
+
+
+
+
+
+
+# lab_loss = self.dop['mix_rbf_mmd2_joint_regress_2_feature'](x_hat,
+#                                             target_x,
+#                                             conditional_x,
+#                                             conditional_x,
+#                                             y,
+#                                             y,
+#                                             self.sigma_list_target_x,
+#                                             self.sigma_list_cond_x)

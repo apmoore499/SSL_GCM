@@ -14,6 +14,17 @@ sys.path.append('generative_models')
 sys.path.append('py')
 sys.path.append('py/generative_models/')
 
+
+
+
+
+
+
+
+from benchmarks_utils import *
+
+
+
 import copy
 import argparse
 from collections import OrderedDict
@@ -34,10 +45,25 @@ from pytorch_lightning.profilers import Profiler, PassThroughProfiler,AdvancedPr
 
 
 
+dict_of_precompiled={}
+
+# dict_of_precompiled['mix_rbf_kernel']=torch.compile(mix_rbf_kernel_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+# dict_of_precompiled['mix_rbf_mmd2']=torch.compile(mix_rbf_mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+# dict_of_precompiled['mix_rbf_mmd2_joint_1_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_1_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+# dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+
+
+#dict_of_precompiled['mix_rbf_kernel']=torch.compile(mix_rbf_kernel_class().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+dict_of_precompiled['mix_rbf_mmd2']=torch.compile(mix_rbf_mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+dict_of_precompiled['mix_rbf_mmd2_joint_1_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_1_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
 
 
 
-torch.set_float32_matmul_precision('medium') #try with 4090
+
+
+torch.set_float32_matmul_precision('high') #try with 4090
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -58,10 +84,46 @@ if __name__ == '__main__':
     parser.add_argument('--use_tuned_hpms',help='use tuned hyperparameters',default='False')
     parser.add_argument('--plot_synthetic_dist',help='plotting of synthetic data (take extra time), not necessary',default='False')
     parser.add_argument('--precision',help='traainer precision ie 32,16',default='32')
+    parser.add_argument('--ignore_plot_5',help='scale for plote',default=False)
+    parser.add_argument('--compile_mmd_mode',help='compilation mode for mmd losses',default='reduce-overhead')
+
+
+
+
+#--ignore_plot_5=False --compile_mmd_mode=
+
+
+
+
+
+
+
+
+
 
 
     args = parser.parse_args()
+    
+    print(args)
+    
+    
+    
+    print('use single si')
+    print(args.use_single_si)
+    
+    
+    
+    
+    from IPython.core.debugger import set_trace
+    
+    
+    
     args.use_single_si=str_to_bool(args.use_single_si)
+    
+    
+    print('use single si')
+    print(args.use_single_si)
+    
     args.use_bernoulli=str_to_bool(args.use_bernoulli)
     args.use_benchmark_generators=str_to_bool(args.use_benchmark_generators)
     args.use_tuned_hpms = str_to_bool(args.use_tuned_hpms)
@@ -103,17 +165,18 @@ if __name__ == '__main__':
     n_iterations=args.n_iterations
     dn_log=dspec.dn_log
 
-    #now we want to read in dataset_si
+
+
+    #set_trace()
+
     csi=master_spec['dataset_si'][dspec.d_n].values
     candidate_si=csi[~np.isnan(csi)]
     args.optimal_si_list = [int(s) for s in candidate_si]
     if args.use_single_si==True: #so we want to use single si, not entire range
-        args.optimal_si_list=[args.s_i]
-    else:
-        args.optimal_si_list=[i for i in range(args.s_i)]
+        #args.optimal_si_list=[args.optimal_si_list[args.s_i]]
+        args.optimal_si_list = [args.s_i]
 
-
-    
+        
     st_outer=time.time()
     
     
@@ -122,7 +185,7 @@ if __name__ == '__main__':
     #k is idx.....
     
     
-    
+    print(f' n to do :  {n_to_do}')
     #n_complete=0
     
     
@@ -168,6 +231,31 @@ if __name__ == '__main__':
         conditional_keys = ordered_keys[label_idx + 1:]
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         #create generators and train individually, in order
         for k_n,v_i in enumerate(order_to_train):
             source_edges=dsc.dag.es.select(_target=v_i)
@@ -189,13 +277,18 @@ if __name__ == '__main__':
                 #if 'X' in dsc.labels[v_i]:
                 cur_x_lab=dsc.label_names[v_i]
                 #get the matching data...
-                all_x=dsc.merge_dat[dsc.merge_dat.type.isin(['labelled','unlabelled'])]
+                all_vals=dsc.merge_dat[dsc.merge_dat.type.isin(['labelled','unlabelled'])]
                 #match column names
                 #ldc=[c for c in all_x.columns if cur_x_lab in c]
                 #subset
-                x_vals=all_x[cur_x_lab].to_numpy()
+                
+                x_vals=torch.tensor(all_vals[cur_x_lab].to_numpy('float32'),device=torch.device('cuda'))
                 #get median pwd
-                median_pwd=get_median_pwd(torch.tensor(x_vals,device='cpu'))
+                median_pwd=get_median_pwd(x_vals).item()
+                    
+                #x_vals=all_x[cur_x_lab].to_numpy()
+                #get median pwd
+                #median_pwd=get_median_pwd(torch.tensor(x_vals,device='cpu'))
                 #make generator for X
                 curmod=0
                 gen_x=Generator_X1(args.lr,
@@ -231,7 +324,10 @@ if __name__ == '__main__':
                 #     min_mmd_checkpoint_callback=return_chkpt_min_val_mmd(model_name, dspec.save_folder) #returns max checkpoint
 
                 #elif args.estop_mmd_type == 'trans': #just use trans regardless for X1 type variables. This covers XC and XS.
-                estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
+                #estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
+                
+                estop_cb = return_early_stop_min_trans_mmd(patience=5)
+                
                 min_mmd_checkpoint_callback=return_chkpt_min_trans_mmd(model_name, dspec.save_folder) #returns max checkpoint
                 
                 # elif args.estop_mmd_type == 'val_trans':
@@ -245,6 +341,9 @@ if __name__ == '__main__':
                 
                 tloader.setup()
                 
+                
+                
+                
                 #callbacks=[min_mmd_checkpoint_callback,estop_cb,swa]
                 callbacks=[min_mmd_checkpoint_callback,estop_cb]
 
@@ -253,6 +352,7 @@ if __name__ == '__main__':
 
                 delete_old_saved_models(model_name,dspec.save_folder,s_i)
 
+                gen_x.set_precompiled(dict_of_precompiled)
                 #tuner=pl.tuner.Tuner(trainer)
                 
                 #tuner.lr_find(gen_x)
@@ -367,14 +467,23 @@ if __name__ == '__main__':
 
             #X from Y, ie Y->X
             elif len(sv) == 1 and dsc.variable_types[v_i] == 'feature' and cond_vtype == ['label']:
-                cur_x_lab = dsc.labels[v_i]
+                
+                cur_x_lab=dsc.label_names[v_i]
+                
                 # get the matching data...
                 all_vals = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled', 'unlabelled'])]
                 # match column names
                 # subset
-                x_vals = all_vals[dsc.label_names[v_i]].values
+                
+                
+                x_vals=torch.tensor(all_vals[cur_x_lab].to_numpy('float32'),device=torch.device('cuda'))
+                #get median pwd
+                median_pwd=get_median_pwd(x_vals).item()
+                
+                
+                #x_vals = all_vals[dsc.label_names[v_i]].values
                 # get median pwd
-                median_pwd = get_median_pwd(torch.tensor(x_vals))
+                #median_pwd = get_median_pwd(torch.tensor(x_vals))
                 n_lab=dsc.merge_dat[dsc.merge_dat.type=='labelled'].shape[0]
                 n_ulab = x_vals.shape[0]
 
@@ -433,10 +542,11 @@ if __name__ == '__main__':
 
                 callbacks=[min_mmd_checkpoint_callback,estop_cb]
                 
+                x2_y_gen.set_precompiled(dict_of_precompiled)
                 
                 
-                
-                profiler = AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_xe_from_y.log')
+                profiler=None
+                #profiler = AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_xe_from_y.log')
                 
                 tb_logger = create_logger(model_name,d_n,s_i)
                 trainer = create_trainer(tb_logger,callbacks,gpu_kwargs,args.n_iterations,precision=args.precision,profiler=profiler)
@@ -463,6 +573,8 @@ if __name__ == '__main__':
                 num_features = np.sum([c == 'feature' for c in cond_vtype])
                 feature_inputs = num_features * dsc.feature_dim  # features
                 cur_x_lab = dsc.label_names[v_i]
+                
+                
                 cond_x_lab = cond_lab
                 # get the matching data...
                 all_dat = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled', 'unlabelled'])]
@@ -474,18 +586,29 @@ if __name__ == '__main__':
                 ##############################
                 # match column names
                 ldc = [c for c in all_dat.columns if cur_x_lab in c]
-                target_x_vals = all_dat[ldc].values
-                median_pwd_target = get_median_pwd(torch.tensor(target_x_vals))
+                #target_x_vals = all_dat[ldc].values
+                #median_pwd_target = get_median_pwd(torch.tensor(target_x_vals))
 
+
+                target_x_vals=torch.tensor(all_vals[ldc].to_numpy('float32'),device=torch.device('cuda'))
+                #get median median_pwd_target
+                median_pwd_target=get_median_pwd(target_x_vals).item()
+                
 
                 ################################
                 #  median pwd for conditional x
                 ################################
                 # match column names
                 #ldc = [c for c in lab_dat.columns if any(c in cond_x_lab)]
-                cond_x_vals = all_dat[cond_x_lab].values
-                median_pwd_cond = get_median_pwd(torch.tensor(cond_x_vals))
+                #cond_x_vals = all_dat[cond_x_lab].values
+                #median_pwd_cond = get_median_pwd(torch.tensor(cond_x_vals))
 
+
+                
+                cond_x_vals=torch.tensor(all_vals[cond_x_lab].to_numpy('float32'),device=torch.device('cuda'))
+                #get median pwd
+                median_pwd_cond=get_median_pwd(cond_x_vals).item()
+                
 
                 genx_x = Generator_X_from_X(args.lr,
                                             args.d_n,
@@ -519,6 +642,26 @@ if __name__ == '__main__':
                     min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,
                                                                              dspec.save_folder)  # returns max checkpoint
 
+
+
+                elif args.estop_mmd_type == 'val_trans':
+                    estop_cb = return_early_stop_min_val_trans_mmd(patience=args.estop_patience)
+                    min_mmd_checkpoint_callback = return_chkpt_min_val_trans_mmd(model_name,
+                                                                             dspec.save_folder)  # returns max checkpoint
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 callbacks = [min_mmd_checkpoint_callback,estop_cb]
                 tb_logger=create_logger(model_name,d_n,s_i)
                 trainer=create_trainer(tb_logger,callbacks,gpu_kwargs,max_epochs=args.n_iterations,precision=args.precision)
@@ -545,7 +688,12 @@ if __name__ == '__main__':
                 # Y  ->  X2
                 # X1 ->
             elif len(sv) > 1 and dsc.variable_types[v_i] == 'feature' and 'label' in cond_vtype:
-
+                
+                
+                from IPython.core.debugger import set_trace
+                
+                #set_trace()
+                
                 conditional_feature_names=[]
                 label_name=[]
 
@@ -589,8 +737,23 @@ if __name__ == '__main__':
                 ##############################
                 # match column names
                 ldc = [c for c in all_dat.columns if cur_x_lab in c]
-                target_x_vals = all_dat[ldc].values
-                median_pwd_target = get_median_pwd(torch.tensor(target_x_vals))
+                #target_x_vals = all_dat[ldc].values
+                
+                
+                
+                
+                
+                
+                
+                x_vals=torch.tensor(all_dat[ldc].to_numpy('float32'),device=torch.device('cuda'))
+                #get median pwd
+                median_pwd_target=get_median_pwd(x_vals).item()
+                
+                
+                
+                
+                
+                #median_pwd_target = get_median_pwd(torch.tensor(target_x_vals))
                 mmd_vlabels[cur_x_lab]={}
                 mmd_vlabels[cur_x_lab]['mpwd'] = median_pwd_target
                 mmd_vlabels[cur_x_lab]['label_names_alphan'] = ldc
@@ -602,8 +765,27 @@ if __name__ == '__main__':
                 for c in conditional_feature_names:
                     relevant_columns=mmd_vlabels[c]['label_names_alphan']
 
-                    cond_x_vals = all_dat[relevant_columns].values
-                    median_pwd = get_median_pwd(torch.tensor(cond_x_vals))
+                    #cond_x_vals = all_dat[relevant_columns].values
+                    #median_pwd = get_median_pwd(torch.tensor(cond_x_vals))
+                    
+                    
+                                    
+                
+                    
+                    cond_x_vals=torch.tensor(all_dat[relevant_columns].to_numpy('float32'),device=torch.device('cuda'))
+                    #get median pwd
+                    median_pwd=get_median_pwd(cond_x_vals).item()
+                    
+                        
+                        
+                        
+                    
+                    
+                    
+                    
+                    
+                    
+                    
                     mmd_vlabels[c]['mpwd']=median_pwd
                     mmd_vlabels[c]['sigma_list']=[median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]]
 
@@ -611,8 +793,23 @@ if __name__ == '__main__':
                 #  median pwd for conditional x
                 ################################
                 # match column names
-                cond_x_vals = all_dat[concat_cond_lab].values
-                median_pwd_cond = get_median_pwd(torch.tensor(cond_x_vals))
+                
+                
+                
+                
+                
+                                
+                cond_x_vals=torch.tensor(all_dat[concat_cond_lab].to_numpy('float32'),device=torch.device('cuda'))
+                #get median pwd
+                median_pwd_cond=get_median_pwd(cond_x_vals).item()
+                
+                    
+            
+                
+                
+                
+                # cond_x_vals = all_dat[concat_cond_lab].values
+                # median_pwd_cond = get_median_pwd(torch.tensor(cond_x_vals))
 
 
 
@@ -640,8 +837,8 @@ if __name__ == '__main__':
                                                 n_ulab=n_ulab,
                                                 label_batch_size=32,#args.lab_bsize,
                                                 unlabel_batch_size=args.tot_bsize,
-                                                labmda_U=args.lambda_U,
-                                                dict_for_mmd=mmd_vlabels)
+                                                labmda_U=args.lambda_U)
+                                                #dict_for_mmd=mmd_vlabels)
 
 
                 if dsc.feature_dim>1:
@@ -675,10 +872,15 @@ if __name__ == '__main__':
                                                                              dspec.save_folder)  # returns max checkpoint
                 
                 
-                
+                elif args.estop_mmd_type == 'val_trans':
+                    estop_cb = return_early_stop_min_val_trans_mmd(patience=args.estop_patience)
+                    min_mmd_checkpoint_callback = return_chkpt_min_val_trans_mmd(model_name,
+                                                                             dspec.save_folder)  # returns max checkpoint
+
                 
                 profiler = None #AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_x2y.log')
 
+                genx2_yx1.set_precompiled(dict_of_precompiled)
 
 
                 callbacks = [min_mmd_checkpoint_callback, estop_cb]
@@ -720,7 +922,7 @@ if __name__ == '__main__':
         # generate 10000 samples
 
 
-        n_samples=int(30000*min(dspec.n_unlabelled/1000,5)) #try to set this to deal wtih very large unalbeleld size...
+        n_samples=int(30000*min(5,5)) #try to set this to deal wtih very large unalbeleld size...
         #n_samples = dsc.merge_dat.shape[0]
         synthetic_samples_dict=generate_samples_to_dict(dsc,has_gpu,dsc_generators,device_string,n_samples)
         joined_synthetic_data=samples_dict_to_df(dsc,synthetic_samples_dict,balance_labels=True,exact=False)
@@ -791,14 +993,14 @@ if __name__ == '__main__':
                 print('data not plotted')
             
             
-            import signal
+            #import signal
                 
             #exit without waiting for sync
             # https://stackoverflow.com/questions/905189/why-does-sys-exit-not-exit-when-called-inside-a-thread-in-python
 
 
-            import os
-            os._exit(0)
+            #import os
+            #os._exit(0)
             #os.kill(os.getpid(), signal.SIGINT)
                 
                 

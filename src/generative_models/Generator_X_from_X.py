@@ -20,6 +20,11 @@ class Generator_X_from_X(pl.LightningModule):
                  unlabel_batch_size=256):
         super().__init__()
 
+        from IPython.core.debugger import set_trace
+
+        #set_trace()
+        
+        
         self.save_hyperparameters()
         
         if self.hparams.num_hidden_layer==1:
@@ -34,6 +39,9 @@ class Generator_X_from_X(pl.LightningModule):
 
             
         self.vmmd_losses=[]
+        
+        
+        self.conditional_on_y=False
 
     def forward(self, z):
         # in lightning, forward defines the prediction/inference actions
@@ -129,8 +137,11 @@ class Generator_X_from_X(pl.LightningModule):
                                         sigma_list=sigma_list_target_x,
                                         sigma_list1=sigma_list_conditional_x)
         
+        
+        
         self.log("val_mmd", val_mmd_loss)
         self.log("trans_mmd",trans_mmd_loss)
+        self.log("val_trans_mmd",trans_mmd_loss+val_mmd_loss)
         
         self.vmmd_losses.append(val_mmd_loss.detach().item())
 
@@ -139,7 +150,6 @@ class Generator_X_from_X(pl.LightningModule):
 
         
         self.log("s_i",self.hparams.s_i)
-
         self.log("d_n",self.hparams.dn_log)
         
 

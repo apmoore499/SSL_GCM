@@ -399,8 +399,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     args.use_single_si = str_to_bool(args.use_single_si)
-    args.use_tuned_hpms = str_to_bool(args.use_tuned_hpms)
-    args.keep_SQL_records = str_to_bool(args.keep_SQL_records)
     args.plot_decision_boundary = str_to_bool(args.plot_decision_boundary)
 
 

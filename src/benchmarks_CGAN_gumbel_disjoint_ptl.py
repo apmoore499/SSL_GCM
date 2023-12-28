@@ -10,7 +10,7 @@ import os
 
 
 import torch
-
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 torch.set_float32_matmul_precision('high')
 
@@ -70,6 +70,13 @@ parser.add_argument('--estop_mmd_type',help='use trans or val on mmd validation'
 parser.add_argument('--use_optimal_y_gen',help='use optimal y generator or not',default='False')
 parser.add_argument('--plot_synthetic_dist',help='plotting of synthetic data (take extra time), not necessary',default='False')
 parser.add_argument('--precision',help='traainer precision ie 32,16',default='32')
+parser.add_argument('--compile_mmd_mode',help='compile mode for mmd losses',default='reduce-overhead')
+parser.add_argument('--ignore_plot_5',help='ignore_first_plot_five, if true then dont do any plot',default='False')
+parser.add_argument('--scale_for_indiv_plot',help='scale for pltoting',default=5)
+parser.add_argument('--synthesise_w_cs',help='synthesise new data using groudn truth cause/spouse values',default='False')
+
+
+
 
 
 
@@ -81,7 +88,7 @@ args.use_benchmark_generators=str_to_bool(args.use_benchmark_generators)
 args.use_bernoulli=str_to_bool(args.use_bernoulli)
 args.use_optimal_y_gen=str_to_bool(args.use_optimal_y_gen)
 args.plot_synthetic_dist=str_to_bool(args.plot_synthetic_dist)
-
+args.ignore_plot_5=str_to_bool(args.ignore_plot_5)
 
 print(f'plot synthetic dist: {args.plot_synthetic_dist}')
 
@@ -130,10 +137,67 @@ if args.use_single_si==True: #so we want to use single si, not entire range
     #args.optimal_si_list=[args.optimal_si_list[args.s_i]]
     args.optimal_si_list = [args.s_i]
 #now we are onto training
+
+
+
+
+#setup your mmd kernels and compile them for fast
+
+
+dict_of_precompiled=return_dict_of_precompiled_mmd(args.compile_mmd_mode)
+
+
+# dict_of_precompiled={}
+
+# # dict_of_precompiled['mix_rbf_kernel']=torch.compile(mix_rbf_kernel_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+# # dict_of_precompiled['mix_rbf_mmd2']=torch.compile(mix_rbf_mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+# # dict_of_precompiled['mix_rbf_mmd2_joint_1_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_1_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+# # dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+
+
+# #dict_of_precompiled['mix_rbf_kernel']=torch.compile(mix_rbf_kernel_class().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+# dict_of_precompiled['mix_rbf_mmd2']=torch.compile(mix_rbf_mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+# dict_of_precompiled['mix_rbf_mmd2_joint_1_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_1_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+# dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+
+# #mix_rbf_mmd2_class
+# dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+
+
+
+
+
+
+
+
+
+
 for k, s_i in enumerate(args.optimal_si_list):
     print('doing s_i: {0}'.format(k))
+    
+    
+    
+    
+    
+    
+    print('========================================')
+    print(f'\n\n DOING dn : {args.d_n}\n\n')
+    print('========================================')
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     args.st = time.time()
-
+    st=time.time()
     dsc_loader = eval(dspec.dataloader_function)  # within the spec
     dsc = dsc_loader(args, s_i, dspec)
     dsc = manipulate_dsc(dsc, dspec)  # adding extra label column and convenient features for complex data mod later on
@@ -555,6 +619,112 @@ for k, s_i in enumerate(args.optimal_si_list):
         cur_mpwd=get_median_pwd(torch.tensor(cur_feature_vals.to_numpy('float32'),device=torch.device('cuda'))).item()
         #store
         median_pwd_dict[c]=cur_mpwd
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+    
+    
+    median_pwd_dict_lab={}
+        
+    for c in unlabelled_keys:
+        #get dsc alpha labels
+        a_labs=dsc.label_names_alphan[c]
+        #subset dataframe
+        cur_feature_vals=all_labelled_features[a_labs]
+        #get median pwd
+        cur_mpwd=get_median_pwd(torch.tensor(cur_feature_vals.to_numpy('float32'),device=torch.device('cuda'))).item()
+        #store
+        median_pwd_dict_lab[c]=cur_mpwd
+
+
+
+    for c in conditional_keys:
+        #get dsc alpha labels
+        a_labs=dsc.label_names_alphan[c]
+        #dsc.label_names_alphan[c]
+        #subset dataframe
+        cur_feature_vals=all_labelled_features[a_labs]
+        #get median pwd
+        cur_mpwd=get_median_pwd(torch.tensor(cur_feature_vals.to_numpy('float32'),device=torch.device('cuda'))).item()
+        
+        # dists=[]
+        
+        # for yl in [0,1]:
+        #     cfv=all_labelled_features[a_labs][all_labelled_label==yl]
+            
+        #     it=torch.tensor(cfv.to_numpy('float32'),device=torch.device('cuda'))
+        #     pd2=torch.cdist(it,it)
+            
+        #     pd2=pd2[torch.triu(torch.ones_like(pd2), diagonal=1).to(torch.bool)]
+        
+        #     dists.append(pd2)
+            
+        # mdist=torch.hstack(dists).median()
+        # cur_mpwd=mdist.item()
+
+        
+        #store
+        median_pwd_dict_lab[c]=cur_mpwd
+        
+        
+    
+    
+    median_pwd_dict_val={}
+        
+    for c in unlabelled_keys:
+        #get dsc alpha labels
+        a_labs=dsc.label_names_alphan[c]
+        #subset dataframe
+        cur_feature_vals=all_validation_features[a_labs]
+        #get median pwd
+        cur_mpwd=get_median_pwd(torch.tensor(cur_feature_vals.to_numpy('float32'),device=torch.device('cuda'))).item()
+        #store
+        median_pwd_dict_val[c]=cur_mpwd
+
+
+
+    for c in conditional_keys:
+        #get dsc alpha labels
+        a_labs=dsc.label_names_alphan[c]
+        #dsc.label_names_alphan[c]
+        #subset dataframe
+        cur_feature_vals=all_validation_features[a_labs]
+        #get median pwd
+        cur_mpwd=get_median_pwd(torch.tensor(cur_feature_vals.to_numpy('float32'),device=torch.device('cuda'))).item()
+        
+        # dists=[]
+        
+        # for yl in [0,1]:
+        #     cfv=all_labelled_features[a_labs][all_labelled_label==yl]
+            
+        #     it=torch.tensor(cfv.to_numpy('float32'),device=torch.device('cuda'))
+        #     pd2=torch.cdist(it,it)
+            
+        #     pd2=pd2[torch.triu(torch.ones_like(pd2), diagonal=1).to(torch.bool)]
+        
+        #     dists.append(pd2)
+            
+        # mdist=torch.hstack(dists).median()
+        # cur_mpwd=mdist.item()
+
+        
+        #store
+        median_pwd_dict_val[c]=cur_mpwd
+        
+        
+    
+        
+        
+        
+        
+        
 
     #print('pausing here')
 
@@ -585,7 +755,7 @@ for k, s_i in enumerate(args.optimal_si_list):
     #all_y_antecedent = [dsc.label_names_alphan[f] for f in causes_of_y_feat_names]
     #concat_ycauses = np.array(all_y_antecedent).flatten().tolist()
 
-    ulab_dloader=DataLoader(torch.utils.data.TensorDataset(torch.Tensor(all_unlabelled.values)),batch_size=args.lab_bsize,shuffle=True)
+    #ulab_dloader=DataLoader(torch.utils.data.TensorDataset(torch.Tensor(all_unlabelled.values)),batch_size=args.lab_bsize,shuffle=True)
     feature_idx_subdict={c:idx for idx,c in enumerate(all_unlabelled_and_labelled.columns) if all_unlabelled_and_labelled.columns[idx]==c }
 
     # now, find variables for which Y is a cause, ie:
@@ -650,6 +820,9 @@ for k, s_i in enumerate(args.optimal_si_list):
             # match column names
             # ldc=[c for c in all_x.columns if cur_x_lab in c]
             # subset
+            
+            #set_trace()
+            
             x_vals = torch.tensor(all_x[cur_x_lab].to_numpy('float32'),device=torch.device('cuda'))
             # get median pwd
             median_pwd = get_median_pwd(x_vals).item()
@@ -672,6 +845,8 @@ for k, s_i in enumerate(args.optimal_si_list):
             model_name = create_model_name(dsc.labels[v_i], algo_variant)
 
 
+            gen_x.set_precompiled(dict_of_precompiled)
+
             #NB SHOULD USE MIN OVER TRANSDUCTIVE, IE ALL UNLABELLED CASES FOR X1
             
             if args.estop_mmd_type == 'val':
@@ -683,14 +858,15 @@ for k, s_i in enumerate(args.optimal_si_list):
                 min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,dspec.save_folder)  # returns min checkpoint
                 
 
-            elif args.estop_mmd_type == 'val_trans':
+            elif args.estop_mmd_type == 'val_trans': #uses trans just for generatorX1 only!!! 
+                #estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
                 estop_cb = return_early_stop_min_val_trans_mmd(patience=args.estop_patience)
                 min_mmd_checkpoint_callback = return_chkpt_min_trans_mmd(model_name,dspec.save_folder)  # returns min checkpoint
             
             
-            from pytorch_lightning.profilers import Profiler, PassThroughProfiler,AdvancedProfiler
+            #from pytorch_lightning.profilers import Profiler, PassThroughProfiler,AdvancedProfiler
             
-            profiler = AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_gumbel_x1.log')
+            #profiler = AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_gumbel_x1.log')
             
             
             profiler=None
@@ -709,6 +885,13 @@ for k, s_i in enumerate(args.optimal_si_list):
             dsc_generators[dsc.labels[v_i]] = gen_x
             dsc_generators[dsc.labels[v_i]].conditional_on_label = False
             dsc_generators[dsc.labels[v_i]].conditional_feature_names = []
+            
+            
+            
+            del trainer
+            
+            
+            del tloader
 
         elif len(sv) == 0 and dsc.variable_types[v_i] == 'label':
             # make generator for Y
@@ -750,7 +933,7 @@ for k, s_i in enumerate(args.optimal_si_list):
             model_name = create_model_name(dsc.labels[v_i], algo_variant)
             cond_vars = ''.join(cond_lab)
             min_bce_chkpt_callback = return_chkpt_min_bce(model_name, dspec.save_folder)
-            estop_cb = return_early_stop_cb_bce(patience=args.estop_patience)
+            estop_cb = return_early_stop_cb_bce(patience=5) #patience 5 to stop overfit
             callbacks = [min_bce_chkpt_callback, estop_cb]
             tb_logger = create_logger(model_name, d_n, s_i)
             trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations,precision=args.precision)
@@ -862,6 +1045,42 @@ for k, s_i in enumerate(args.optimal_si_list):
 
         elif (len(sv) >= 1) and (dsc.variable_types[v_i] == 'feature') and (
         np.all([c == 'feature' for c in cond_vtype])):
+            
+            
+            
+                        
+            conditional_feature_names = []
+            label_name = []
+            for cl, ct in zip(cond_lab, cond_vtype):
+                if ct == 'feature':
+                    conditional_feature_names.append(cl)
+                if ct == 'label':
+                    label_name.append(cl)
+
+            concat_cond_lab = []
+            for c in conditional_feature_names:
+                concat_cond_lab = concat_cond_lab + dsc.label_names_alphan[c]
+
+            # get target variable names if multidimensional
+            c = dsc.labels[v_i]
+            cur_x_lab = dsc.labels[v_i]
+            lab_dat = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled'])]
+            all_dat = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled', 'unlabelled'])]
+            n_lab = lab_dat.shape[0]
+            n_ulab = all_dat.shape[0]
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
             num_features = np.sum([c == 'feature' for c in cond_vtype])
             feature_inputs = num_features * dsc.feature_dim  # features
             cur_x_lab = dsc.label_names[v_i]
@@ -871,23 +1090,121 @@ for k, s_i in enumerate(args.optimal_si_list):
 
             if len(cur_x_lab) == 1 and type(cur_x_lab) == list:
                 cur_x_lab = cur_x_lab[0]
+
+
+            
+            #set_trace()
+
             ##############################
             #    median pwd for target x
             ##############################
             # match column names
             ldc = [c for c in all_dat.columns if cur_x_lab in c]
+            
+            # dat_for=all_dat[ldc]
+            
+            # if type(dat_for)==pd.DataFrame:
+            #     dat_for=dat_for.values.astype('float32')
+            #     target_x_vals = torch.tensor(all_dat[ldc],device=torch.device('cuda'))
+            
+            # else:
+            
             target_x_vals = torch.tensor(all_dat[ldc].to_numpy('float32'),device=torch.device('cuda'))
-            median_pwd = get_median_pwd(target_x_vals)
-            #median_pwd_target = get_median_pwd(torch.tensor(target_x_vals,device=torch.device('cuda')))
+            
+            
+            
+            median_pwd_target = get_median_pwd(target_x_vals).item()
 
             ################################
             #  median pwd for conditional x
             ################################
             # match column names
-            # ldc = [c for c in lab_dat.columns if any(c in cond_x_lab)]
-            cxl=[c for c in all_dat.columns if cond_x_lab in c] #i think right?
-            cond_x_vals = torch.tensor(all_dat[cxl].to_numpy('float32'),device=torch.device('cuda'))
-            median_pwd_cond = get_median_pwd(cond_x_vals)
+            
+            # dat_for=all_dat[concat_cond_lab]
+            
+            
+            # if type(dat_for)==pd.DataFrame:
+            #     dat_for=dat_for.values.astype('float32')
+            #     cond_x_vals = torch.tensor(all_dat[ldc],device=torch.device('cuda'))
+            
+            # else:
+            
+            #     cond_x_vals = torch.tensor(all_dat[ldc].to_numpy('float32'),device=torch.device('cuda'))
+            
+            
+            
+            cond_x_vals = torch.tensor(all_dat[concat_cond_lab].to_numpy('float32'),device=torch.device('cuda'))
+            median_pwd_cond = get_median_pwd(cond_x_vals).item()
+
+            input_dim = dsc.feature_dim + cond_x_vals.shape[1]# + dsc.n_classes
+            output_dim = dsc.feature_dim
+            
+            
+            
+            
+            
+            
+            
+            
+            # conditional_feature_names = []
+            # label_name = []
+            # for cl, ct in zip(cond_lab, cond_vtype):
+            #     if ct == 'feature':
+            #         conditional_feature_names.append(cl)
+            #     if ct == 'label':
+            #         label_name.append(cl)
+
+            # concat_cond_lab = []
+            # for c in conditional_feature_names:
+            #     concat_cond_lab = concat_cond_lab + dsc.label_names_alphan[c]
+
+            # # get target variable names if multidimensional
+            # c = dsc.labels[v_i]
+            # cur_x_lab = dsc.labels[v_i]
+            # lab_dat = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled'])]
+            # all_dat = dsc.merge_dat[dsc.merge_dat.type.isin(['labelled', 'unlabelled'])]
+            # n_lab = lab_dat.shape[0]
+            # n_ulab = all_dat.shape[0]
+
+            # ##############################
+            # #    median pwd for target x
+            # ##############################
+            # # match column names
+            # ldc = [c for c in all_dat.columns if cur_x_lab in c]
+            # target_x_vals = torch.tensor(all_dat[ldc].numpy('float32'),device=torch.device('cuda'))
+            
+            
+            
+            # median_pwd_target = get_median_pwd(target_x_vals)
+
+            # ################################
+            # #  median pwd for conditional x
+            # ################################
+            # # match column names
+            # cond_x_vals = torch.tensor(all_dat[concat_cond_lab].numpy('float32'),device=torch.device('cuda'))
+            # median_pwd_cond = get_median_pwd(cond_x_vals)
+
+            # input_dim = dsc.feature_dim + cond_x_vals.shape[1] + dsc.n_classes
+            # output_dim = dsc.feature_dim
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+
+            
+            
+            
 
             genx_x = Generator_X_from_X(args.lr,
                                         args.d_n,
@@ -902,6 +1219,8 @@ for k, s_i in enumerate(args.optimal_si_list):
                                         label_batch_size=args.lab_bsize,
                                         unlabel_batch_size=args.tot_bsize)
 
+
+            #set_trace()
             tloader = SSLDataModule_X_from_X(orig_data_df=dsc.merge_dat,
                                              tvar_names=cur_x_lab,
                                              cvar_names=cond_x_lab,
@@ -916,6 +1235,10 @@ for k, s_i in enumerate(args.optimal_si_list):
                 estop_cb = return_early_stop_min_val_mmd(patience=args.estop_patience)
             elif args.estop_mmd_type == 'trans':
                 estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)
+            elif args.estop_mmd_type == 'val_trans': #trans for unlabelled X
+                estop_cb = return_early_stop_min_trans_mmd(patience=args.estop_patience)                
+                
+                
             callbacks = [min_mmd_checkpoint_callback, estop_cb]
             tb_logger = create_logger(model_name, d_n, s_i)
             trainer = create_trainer(tb_logger, callbacks, gpu_kwargs, max_epochs=args.n_iterations,precision=args.precision)
@@ -970,7 +1293,7 @@ for k, s_i in enumerate(args.optimal_si_list):
             
             
             
-            median_pwd_target = get_median_pwd(target_x_vals)
+            median_pwd_target = get_median_pwd(target_x_vals).item()
 
             ################################
             #  median pwd for conditional x
@@ -1167,7 +1490,7 @@ for k, s_i in enumerate(args.optimal_si_list):
             dummy=1
             break
         
-        
+        median_pwd_dict['cause_spouse']=-1
         
         init_kwargs=dict(dsc_generators=dsc_generators,
                                            labelled_key=labelled_key,
@@ -1186,11 +1509,24 @@ for k, s_i in enumerate(args.optimal_si_list):
                                             dn_log=dn_log,
                                             n_labelled=n_labelled,
                                             n_unlabelled=n_unlabelled,
+                                            lab_bsize=args.lab_bsize,
+                                            tot_bsize=args.tot_bsize,
+                                            median_pwd_dict_lab=median_pwd_dict_lab,
+                                            median_pwd_dict_val=median_pwd_dict_val,
                                             lr=args.lr,
                                             dsc=dsc)
     
      
+    
+     
+     
+     
+     
         gumbel_module=GumbelModuleCombined(**init_kwargs)
+        
+        
+        gumbel_module.setup_compiled_mmd_losses(dict_of_precompiled=dict_of_precompiled) #important
+        
         
         import copy
         
@@ -1224,20 +1560,18 @@ for k, s_i in enumerate(args.optimal_si_list):
         
         estop_min=return_estop_min_mmd_gumbel(monitor=MIN_MONITOR,patience=args.estop_patience)
         
-        data_module=GumbelDataModule(all_validation_features=all_validation_features,
-                                        all_unlabelled_and_labelled_features=all_unlabelled_and_labelled,
-                                        all_validation_label=all_validation_label,
+        data_module=GumbelDataModule(merge_dat=dsc.merge_dat,
+                                        lab_name=dsc.label_var,
                                         lab_bsize=args.lab_bsize,
-                                        tot_bsize=args.tot_bsize,
-                                        nworkers=4)
+                                        tot_bsize=args.tot_bsize)
         
 
         data_module.setup(stage='fit',precision=args.precision)
         callbacks=[min_chkpt,estop_min]
         
-        from pytorch_lightning.profilers import Profiler, PassThroughProfiler,AdvancedProfiler
+        #from pytorch_lightning.profilers import Profiler, PassThroughProfiler,AdvancedProfiler
         
-        profiler = AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_gumbel_togeth.log')
+        #profiler = AdvancedProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/src/profiling',filename='profile_gumbel_togeth.log')
         
         profiler=None
         
@@ -1347,21 +1681,19 @@ for k, s_i in enumerate(args.optimal_si_list):
     
     #synthetic_samples_dict = generate_samples_to_dict(dsc, has_gpu, dsc_generators, device_string, n_samples,gumbel=True,tau=mintemp)
     #don't use gumbel dist with the temp
-    synthetic_samples_dict = generate_samples_to_dict(dsc, has_gpu, dsc_generators, device_string, n_samples)
-    joined_synthetic_data = samples_dict_to_df(dsc, synthetic_samples_dict, balance_labels=True,exact=False)
+    synthetic_samples_dict = generate_samples_to_dict(dsc, has_gpu, dsc_generators, device_string, n_samples)#,gumbel=True,tau=None)
+    
+    #synthetic_samples_dict = generate_samples_to_dict(dsc, has_gpu, dsc_generators, device_string, n_samples,tau=0.5)
+    joined_synthetic_data = samples_dict_to_df(dsc, synthetic_samples_dict, balance_labels=True,exact=False,extra_sample_frac=1.0)
 
     algo_spec = copy.deepcopy(master_spec['algo_spec'])
     algo_spec.set_index('algo_variant', inplace=True)
 
     synthetic_data_dir = algo_spec.loc[algo_variant].synthetic_data_dir
 
-    save_synthetic_data(joined_synthetic_data,
-                        d_n,
-                        s_i,
-                        master_spec,
-                        dspec,
-                        algo_spec,
-                        synthetic_data_dir)
+    
+    #set_trace()
+    save_synthetic_data(joined_synthetic_data,d_n,s_i,master_spec,dspec,algo_spec,synthetic_data_dir)
 
     et = time.time()
     total_time = et - st
@@ -1380,11 +1712,12 @@ for k, s_i in enumerate(args.optimal_si_list):
     
     
     
-    if args.plot_synthetic_dist:
+    if args.plot_synthetic_dist and s_i >=5:
         
         if dsc.feature_dim == 1:
             print('feature dim==1 so we are going to to attempt to plot synthetic v real data')
-            plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_data, synthetic_data_dir, dspec)
+            plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_data, synthetic_data_dir, dspec,scale_for_indiv_plot=1,scale_for_cat_plot=0.3)
+            #plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_data, synthetic_data_dir, dspec,scale_for_cat_plot=0.3)
         else:
             # scols = [s.replace('_0', '') for s in joined_synthetic_data.columns]
             # joined_synthetic_data.columns = scols
@@ -1416,5 +1749,118 @@ for k, s_i in enumerate(args.optimal_si_list):
 
             print('data plotted')
 
+
+    elif s_i <5 and not args.ignore_plot_5:
+        print('plotting data cos si = 0')
+        
+        
+        
+        if dsc.feature_dim == 1:
+            print('feature dim==1 so we are going to to attempt to plot synthetic v real data')
+            plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_data, synthetic_data_dir, dspec,scale_for_indiv_plot=1,scale_for_cat_plot=0.3)
+
+            
+        else:
+                
+            # scols = [s.replace('_0', '') for s in joined_synthetic_data.columns]
+            # joined_synthetic_data.columns = scols
+            joined_synthetic_data.rename(columns={'Y_0': 'Y'}, inplace=True)
+            # joined_synthetic_data=joined_synthetic_data[[c for c in dsc.merge_dat.columns]]
+            if 'y_given_x_bp' in dsc.merge_dat.columns:
+                dsc.merge_dat = dsc.merge_dat[[c for c in joined_synthetic_data.columns]]
+            if 'y_given_x_bp' in joined_synthetic_data.columns:
+                joined_synthetic_data = joined_synthetic_data[[c for c in dsc.merge_dat.columns]]
+            synthetic_and_orig_data = pd.concat([dsc.merge_dat, joined_synthetic_data], axis=0)
+            
+            #huffle it....
+            synthetic_and_orig_data.reset_index(inplace=True)
+            
+            synthetic_and_orig_data=synthetic_and_orig_data.sample(frac=1.0)
+            
+            #print('before shuffle')
+            #print(synthetic_and_orig_data.head(5))
+            
+            #s_idx=[i for i in synthetic_and_orig_data.index]
+            
+            #from IPython.core.debugger import set_trace
+            
+            #set_trace()
+            
+            
+            types_orders={'synthetic':4,'test':2,'unlabelled':3,'labelled':0,'validation':1}
+
+            
+            
+            
+            #s = synthetic_and_orig_data['type'].apply(lambda x: types_orders[x])
+            #s.sort_values()
+            
+            
+            
+            #df.set_index(s.index).sort()
+            
+            synthetic_and_orig_data=synthetic_and_orig_data.sort_values(by=['type'], key=lambda x: x.map(types_orders))
+            
+            
+            #s_idx=s_idx[torch.randperm(len(s_idx)).cpu().numpy()]
+            
+            #synthetic_and_orig_data=synthetic_and_orig_data.loc[s_idx]
+            #print('after shuffle')
+            
+            #print(synthetic_and_orig_data.head(5))
+
+            dsc.merge_dat = synthetic_and_orig_data
+            dsc.d_n = d_n
+            dsc.var_types = dsc.variable_types
+            dsc.var_names = dsc.labels
+            dsc.feature_varnames = dsc.feature_names
+            dsc.s_i = s_i
+            plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir=synthetic_data_dir)
+
+            print('now plotting individual variables')
+            print('skip plot individual for now')
+            # for f in dsc.feature_names:
+            #     for data_type in ['unlabelled', 'labelled', 'synthetic']:
+            #         plot_2d_single_variable_data_type(dsc,
+            #                                           s_i,
+            #                                           data_type=data_type,
+            #                                           variable_name=f,
+            #                                           synthetic_data_dir=synthetic_data_dir)
+
+            print('data plotted')
+            
+
+
+
+
+
+
+
     else:
-        print(f'data not plotted for si {args.s_i} dn {args.d_n}')
+        print(f'data not plotted for si {args.s_i} dn {args.d_n}, plot ignore 5 is {args.ignore_plot_5}')
+            
+            
+        
+    del dsc_generators
+    
+    del optimal_mods
+    
+    #del GumbelModuleCombined
+    
+    del old_dsc_generators
+    
+    del data_module
+    
+    del gumbel_module
+    
+    del trainer
+    
+    del dsc
+    
+    
+    #del unlabelled
+    
+    
+    del joined_synthetic_data
+    
+    del synthetic_samples_dict

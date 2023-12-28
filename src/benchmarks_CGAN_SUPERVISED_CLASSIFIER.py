@@ -1,3 +1,17 @@
+
+
+
+
+import torch
+torch.multiprocessing.set_sharing_strategy('file_system')
+
+
+
+
+
+
+
+
 from benchmarks_utils import *
 
 import sys
@@ -8,7 +22,7 @@ import pickle
 import igraph
 
 n_classes = 2
-torch.set_float32_matmul_precision('high') #try with 4090
+torch.set_float32_matmul_precision('highest') #try with 4090
 
 # https://github.com/PyTorchLightning/pytorch-lightning/issues/10182
 # turning off the warnings:
@@ -54,9 +68,10 @@ class CGANSupervisedClassifier(pl.LightningModule):
     def __init__(self, lr, d_n, s_i, input_dim,dn_log):
         super().__init__()
         self.save_hyperparameters()
-        self.classifier = get_standard_net(input_dim=input_dim,
-                                           output_dim=n_classes)
+        self.classifier = get_standard_net(input_dim=input_dim,output_dim=n_classes)
+        
         self.lfunc = torch.nn.CrossEntropyLoss()
+        self.get_softmax=get_softmax
         self.val_accs=[]
 
     def forward(self, x):
@@ -66,7 +81,7 @@ class CGANSupervisedClassifier(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x_l, y_l = batch
 
-        pred_y = get_softmax(self.classifier(x_l))
+        pred_y = self.get_softmax(self.classifier(x_l))
 
         loss = self.lfunc(pred_y, y_l.flatten())
 
@@ -93,6 +108,11 @@ class CGANSupervisedClassifier(pl.LightningModule):
         prediction=self.classifier(features)
         p_acc = get_accuracy(prediction, label)
         return(p_acc)
+
+
+
+
+
 
 class SSLDataModule(pl.LightningDataModule):
     def __init__(self, orig_data, batch_size: int = 64):
@@ -158,6 +178,226 @@ class SSLDataModule(pl.LightningDataModule):
             return DataLoader(self.data_validation, batch_size=self.nval)
 
 
+    def teardown_end(self):
+        del self.data_validation
+        del self.data_train
+        del self.orig_data
+
+
+
+
+
+from typing import IO, Any, Dict, Iterable, Optional, Union, cast
+
+
+# combine synthetic data w original labelled data
+class CGANSupervisedDataModule(pl.LightningDataModule):
+    def __init__(self, orig_data, synth_dd,inclusions, batch_size: int = 64,n_to_sample_for_orig: str='unlabelled'):
+        super().__init__()
+        self.orig_data = orig_data
+        self.batch_size = batch_size
+        self.synth_dd=synth_dd
+        self.inclusions=inclusions
+        self.n_to_sample_for_orig=n_to_sample_for_orig#'labelled' #'unlabelled'
+
+    def setup(self, stage: Optional[str] = None):
+        orig_data = self.orig_data
+        synth_dd=self.synth_dd
+
+        # ----------#
+        # Training Labelled
+        # ----------#
+        X_train_lab = orig_data['label_features']
+        y_train_lab = orig_data['label_y'].long()
+
+        # ----------#
+        # Training Unlabelled
+        # ----------#
+        X_train_ulab = orig_data['unlabel_features']
+        y_train_ulab = orig_data['unlabel_y'].long()
+
+        # -------------#
+        # Validation
+        # -------------#
+
+        X_val = orig_data['val_features']
+        y_val = orig_data['val_y'].long()
+
+        # ----------#
+        # Synthetic Data
+        # ----------#
+        X_train_synthetic = synth_dd['synthetic_features']
+        y_train_synthetic = synth_dd['synthetic_y'].long().reshape(-1,1)
+
+
+
+        #print(self.inclusions)
+        if self.inclusions == 'orig_and_synthetic':
+            #X_train_total = torch.cat((X_train_lab, X_train_synthetic), 0)
+            #y_train_total = torch.cat((y_train_lab.flatten(), y_train_synthetic.flatten()), 0).reshape((-1,1))
+            
+
+            
+            n_unlabelled = X_train_ulab.shape[0]
+            n_labelled = X_train_lab.shape[0]
+            dummy_label_weights = torch.ones(n_labelled)
+
+            
+            if self.n_to_sample_for_orig=='labelled':
+                num_samples=n_labelled
+                
+                
+                X_train_lab_rs=X_train_lab
+                y_train_lab_rs=y_train_lab
+            
+            elif self.n_to_sample_for_orig=='unlabelled':
+                num_samples=n_unlabelled
+                resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
+                X_train_lab_rs = X_train_lab[resampled_i]
+                y_train_lab_rs = y_train_lab[resampled_i]   
+                
+            elif self.n_to_sample_for_orig=='baseline':
+                num_samples=2000 #keep in line with original datsets
+                resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
+                X_train_lab_rs = X_train_lab[resampled_i]
+                y_train_lab_rs = y_train_lab[resampled_i]   
+            
+            #resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
+            #X_train_lab_rs = X_train_lab[resampled_i]
+            #y_train_lab_rs = y_train_lab[resampled_i]
+
+
+            X_train_total = X_train_lab_rs
+            y_train_total = y_train_lab_rs
+            
+            
+            
+            #select a smaller subset of the synthetic data to train on, like 10,000 synthetic....
+            
+            
+            # N_SYNTHETIC=5000
+            
+            # sel_i=torch.randperm(X_train_synthetic.shape[0])[:N_SYNTHETIC]
+            
+            # N_LAB=5000
+            # sel_il=torch.randperm(X_train_total.shape[0])[:N_LAB]
+            
+            
+            # X_train_total = torch.cat((X_train_total[sel_i], X_train_synthetic[sel_i]), 0)
+            # y_train_total = torch.cat((y_train_total[sel_i].flatten(), y_train_synthetic[sel_i].flatten()), 0).reshape((-1,1))
+            
+            
+            # N_SYNTHETIC=5000
+            
+            # sel_i=torch.randperm(X_train_synthetic.shape[0])[:N_SYNTHETIC]
+            
+            # N_LAB=5000
+            # sel_il=torch.randperm(X_train_total.shape[0])[:N_LAB]
+            
+            
+            X_train_total = torch.cat((X_train_total, X_train_synthetic), 0)
+            y_train_total = torch.cat((y_train_total.flatten(), y_train_synthetic.flatten()), 0).reshape((-1,1))
+            
+            
+            
+        
+
+        elif self.inclusions=='orig_only':
+
+            # -------------#
+            # Setting up resampling
+            # -------------#
+
+            n_unlabelled = X_train_ulab.shape[0]
+            n_labelled = X_train_lab.shape[0]
+            dummy_label_weights = torch.ones(n_labelled)
+            
+            if self.n_to_sample_for_orig=='labelled':
+                num_samples=n_labelled
+                
+                
+                X_train_lab_rs=X_train_lab
+                y_train_lab_rs=y_train_lab
+            
+            elif self.n_to_sample_for_orig=='unlabelled':
+                num_samples=n_unlabelled
+                resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
+                X_train_lab_rs = X_train_lab[resampled_i]
+                y_train_lab_rs = y_train_lab[resampled_i]   
+                
+            elif self.n_to_sample_for_orig=='baseline':
+                num_samples=2000 #keep in line with original datsets
+                resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
+                X_train_lab_rs = X_train_lab[resampled_i]
+                y_train_lab_rs = y_train_lab[resampled_i]   
+            
+            #resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
+            #X_train_lab_rs = X_train_lab[resampled_i]
+            #y_train_lab_rs = y_train_lab[resampled_i]
+
+            X_train_total = X_train_lab_rs
+            y_train_total = y_train_lab_rs.flatten().reshape((-1,1))
+
+
+        elif self.inclusions=='synthetic_only':
+            X_train_total = X_train_synthetic
+            y_train_total = y_train_synthetic.reshape((-1,1))
+        else:
+            assert(1==0)
+
+
+        self.data_train = torch.utils.data.TensorDataset(X_train_total,
+                                                         y_train_total)
+
+        # Validation Sets
+        vfeat = X_val.unsqueeze(0)
+        vlab = y_val.unsqueeze(0)
+        self.data_validation = torch.utils.data.TensorDataset(vfeat, vlab)
+        self.nval = vlab.shape[0]
+
+        return (self)
+
+    # def train_dataloader(self):
+    #     return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
+
+    # def val_dataloader(self):
+    #     return DataLoader(self.data_validation, batch_size=self.nval)
+    
+    def train_dataloader(self):
+        return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
+        
+        #has_gpu=torch.cuda.is_available()
+        #if has_gpu:
+        #    return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True) #nb change thise
+        #else:
+        #    return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
+
+    def val_dataloader(self):
+        return DataLoader(self.data_validation, batch_size=self.nval)
+        #has_gpu=torch.cuda.is_available()
+        #if has_gpu:
+        #    return DataLoader(self.data_validation, batch_size=self.nval) #nb change thise
+        #else:
+        #    return DataLoader(self.data_validation, batch_size=self.nval)
+
+
+
+    def teardown_end(self):
+        del self.data_validation
+        del self.data_train
+        del self.orig_data
+        del self.synth_dd
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -173,6 +413,18 @@ if __name__ == '__main__':
     parser.add_argument('--tot_bsize', help='unlabelled + labelled batch size for training', type=int,default=128)
     parser.add_argument('--lab_bsize', help='labelled data batch size for training', type=int,default=4)
     parser.add_argument('--estop_patience', help='labelled data batch size for training', type=int,default=5)
+    parser.add_argument('--n_pretrain_epo', help='pretraiing the network, number epoch', type=int,default=5)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    #parser.add_argument('--estop_patience', help='labelled data batch size for training', type=int,default=5)
 
     args = parser.parse_args()
     args.use_single_si=str_to_bool(args.use_single_si)
@@ -202,13 +454,51 @@ if __name__ == '__main__':
         args.optimal_si_list = [args.s_i]
 
 
-    st = time.time()
 
     origs=[]
     wsynth=[]
 
+
+    #chek for alreadty done
+    
+    
+
+    #define here and see if we can keep same for eentire dset...
+
+
+
+
+    #smax=torch.nn.Softmax(dim=1)  # need this to convert classifier predictions
+
+    #smax=torch.jit.compile(smax)
+    
+    #torch.compile(torch.nn.CrossEntropyLoss().cuda(),fullgraph=True,mode='max-autotune')
+    
+    #smax=torch.nn.Softmax(dim=1).cuda()#torch.compile(torch.nn.Softmax(dim=1).cuda(),fullgraph=True,mode='reduce-overhead')
+    #compiled_loss_func=torch.nn.CrossEntropyLoss().cuda()#torch.compile(torch.nn.CrossEntropyLoss().cuda(),fullgraph=True,mode='reduce-overhead')
+
+            #self.classifier = torch.compile(get_standard_net(input_dim=input_dim,output_dim=n_classes).to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+
+
+
+    # ulab_fn="{0}/saved_models/{1}-s_i={2}_unlabel_acc.out".format(dspec.save_folder, model_name,
+    #                                                                 optimal_trainer.model.hparams[
+    #                                                                     's_i'])
+    
+    # test_fn="{0}/saved_models/{1}-s_i={2}_test_acc.out".format(SAVE_FOLDER, model_name,
+    #                                                             optimal_trainer.model.hparams[
+    #                                                                 's_i'])
+
+
+    smax=torch.compile(torch.nn.Softmax(dim=1).cuda(),fullgraph=True,mode='reduce-overhead')
+    compiled_loss_func=torch.compile(torch.nn.CrossEntropyLoss().cuda(),fullgraph=True,mode='reduce-overhead')
+    classifier_precompiled = torch.compile(get_standard_net(input_dim=dspec.input_dim,output_dim=n_classes).cuda(),fullgraph=True,mode='max-autotune')
+
+
     for k, s_i in enumerate(args.optimal_si_list):
-        print('doing s_i idx of 100: {0}'.format(k))
+        st = time.time()
+        
+        #print('doing s_i idx of 100: {0}'.format(k))
         print(f'doing s_i: {s_i}')
         target_fn = '{0}/{3}/synthetic_data_d_n_{1}_s_i_{2}.csv'.format(dspec.save_folder, args.d_n, s_i,synthetic_data_dir)
         synthetic_data = pd.read_csv(target_fn, index_col=0)
@@ -402,6 +692,10 @@ if __name__ == '__main__':
         synth_dd['synthetic_features'] = torch.Tensor(synthetic_data[feature_variables].to_numpy(dtype=np.float32))
         synth_dd['synthetic_y'] = torch.Tensor(synthetic_data[feature_labels[0]].to_numpy(dtype=np.float32))
 
+
+        #set_trace()
+        
+        
         ssld_orig = CGANSupervisedDataModule(orig_data,
                                             synth_dd,
                                             inclusions='orig_only',
@@ -414,6 +708,7 @@ if __name__ == '__main__':
         ssld_synth = CGANSupervisedDataModule(orig_data,
                                             synth_dd,
                                             inclusions='orig_and_synthetic',
+                                            n_to_sample_for_orig='unlabelled',
                                             batch_size=args.tot_bsize)  
     
     
@@ -421,32 +716,31 @@ if __name__ == '__main__':
         ssld_synth.setup()
 
 
+        cgan_classifier = CGANSupervisedClassifier(lr=args.lr, d_n=args.d_n, s_i=s_i,input_dim=dspec.input_dim,dn_log=dspec.dn_log)  # define model
 
-        cgan_classifier = CGANSupervisedClassifier(lr=args.lr, d_n=args.d_n, s_i=s_i,
-                                                input_dim=dspec.input_dim,dn_log=dspec.dn_log)  # define model
-
-        #cgan_classifier=torch.compile(cgan_classifier,fullgraph=True,backend='reduce-overhead')
+        cgan_classifier.loss=compiled_loss_func
+        cgan_classifier.get_softmax=smax
         
-
         results_list = []
         for t in range(args.n_trials):
             
             
             cgan_classifier.apply(init_weights_he_kaiming)
+            
+            
+            
 
 
             max_pf_checkpoint_callback = return_chkpt_max_val_acc(model_name, dspec.save_folder)  # returns max checkpoint
-            estop_cb = return_estop_val_acc(args.estop_patience)
+            estop_cb = return_estop_val_acc(args.n_pretrain_epo)
             tb_logger = pl_loggers.TensorBoardLogger("lightning_logs/",
                                                     name=combined_name(model_name, args.d_n, s_i),
                                                     version=0)
-            #import pytorch_lightning
-            #profiler_simple_first=pytorch_lightning.profilers.SimpleProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/profiler',filename='simple_profile_results.txt')
-            #profiler_simple_second=pytorch_lightning.profilers.SimpleProfiler(dirpath='/media/krillman/240GB_DATA/codes2/SSL_GCM/profiler',filename='simple_profile_results_second.txt')
 
             trainer = pl.Trainer(log_every_n_steps=1,
                                 check_val_every_n_epoch=1,
                                 max_epochs=args.n_iterations,
+                                #max_epochs=args.n_iterations,
                                 callbacks=[max_pf_checkpoint_callback,estop_cb],
                                 #reload_dataloaders_every_n_epochs=1,
                                 #deterministic=True,
@@ -457,58 +751,13 @@ if __name__ == '__main__':
                                 #profiler=profiler_simple_first,
                                 **gpu_kwargs)
 
-
-            # # now load in synthetic data
-            # n_zeros=synthetic_data[synthetic_data[feature_labels[0]]==0].shape[0]
-            # n_ones=synthetic_data[synthetic_data[feature_labels[0]]==1].shape[0]
             
             
-            
-            # if n_zeros==0 or n_ones==1:
-            #     print('pausing zero case of 0 1')
-            # if args.nsamps>n_zeros and args.nsamps>n_ones:
-            #     args.nsamps=min(n_zeros,n_ones)
-            #     #synth_c0 = synthetic_data[synthetic_data[feature_labels[0]] == 0].sample(args.nsamps) #why are thee samples balanced? this is an error they should not be balanced cos not always 0.5
-            #     #synth_c1 = synthetic_data[synthetic_data[feature_labels[0]] == 1].sample(args.nsamps)
-                
-            #     synth_c0 = synthetic_data[synthetic_data[feature_labels[0]] == 0].sample(3000)
-            #     synth_c1 = synthetic_data[synthetic_data[feature_labels[0]] == 1].sample(3000)
+            test_features=torch.tensor(orig_data['test_features'],device='cuda')
+            test_y=torch.tensor(orig_data['test_y'].flatten(),device='cuda')
+            ulab_features=torch.tensor(orig_data['unlabel_features'],device='cuda')
+            ulab_y=torch.tensor(orig_data['unlabel_y'].flatten(),device='cuda')
 
-            #     synthetic_data = pd.concat((synth_c0, synth_c1), 0, ignore_index=True)
-            # elif args.nsamps==-1: # -1 flag is for when you use ALL of the data
-            #     synthetic_data=synthetic_data # we just do this instead
-
-
-            # synth_dd = {}
-
-            # if dspec.feature_dim==1:
-            #     #rename...
-            #     scols=[c for c in synthetic_data.columns]
-            #     ncols=[]
-            #     for s in scols:
-            #         n_name=s
-            #         if s[0]=='X' and '_' not in s:
-            #             n_name=s+'_0'
-            #         ncols.append(n_name)
-            #     synthetic_data.columns=ncols
-
-            # #select feature / label vars respectively. this will also reorder the data.
-            # synth_dd['synthetic_features'] = torch.Tensor(synthetic_data[feature_variables].to_numpy(dtype=np.float32))
-            # synth_dd['synthetic_y'] = torch.Tensor(synthetic_data[feature_labels[0]].to_numpy(dtype=np.float32))
-
-            # ssld_orig = CGANSupervisedDataModule(orig_data,
-            #                                     synth_dd,
-            #                                     inclusions='orig_only',
-            #                                     n_to_sample_for_orig='unlabelled', #unlabelled, labelled, baseline. baseline=2000 as per original synthetic data. unlabelled=as many as in this unlabelled data. so like 100,000 if so. labelled=just labelled cases ~ 40 cases.
-            #                                     batch_size=args.tot_bsize) #actually just do tot_bsize cos same as orig, otherwise too slow 23_11_2023 AM
-                                                
-            #                                     #batch_size=32) #32 to keep same as orig for small datasets, 23_11_2023 AM
-            #                                     #batch_size=args.tot_bsize)
-
-            # ssld_synth = CGANSupervisedDataModule(orig_data,
-            #                                     synth_dd,
-            #                                     inclusions='orig_and_synthetic',
-            #                                     batch_size=args.tot_bsize)
 
             # before we start training, we have to delete old saved models
             clear_saved_models(model_name, save_dir=dspec.save_folder, s_i=s_i)
@@ -521,19 +770,34 @@ if __name__ == '__main__':
             #set_trace()
 
             #load optimal model....
+            #set_trace()
             cgan_fn = '{0}/saved_models/{2}-s_i={1}-*.ckpt'.format(dspec.save_folder, s_i,model_name)
             optimal_model_path=glob.glob(cgan_fn)[0]
             #set_trace()
             cgan_classifier=type(cgan_classifier).load_from_checkpoint(optimal_model_path)
 
+
+
+
+            #cgan_classifier.apply(init_weights_he_kaiming) #reset it.........
+
             cgan_saved = glob.glob(cgan_fn)[0]
             cgan_saved = cgan_saved.split('.ckpt')[0][-4:]
 
             optimal_pre_synthetic=cgan_saved
+            tmsd=trainer.model.state_dict()
+            
+            
 
             max_pf_checkpoint_callback = return_chkpt_max_val_acc(model_name, dspec.save_folder)  # returns max checkpoint
             estop_cb = return_estop_val_acc(args.estop_patience)
 
+            del trainer
+            
+            
+            tb_logger = pl_loggers.TensorBoardLogger("lightning_logs/",
+                                        name=combined_name(model_name, args.d_n, s_i),
+                                        version=0)
 
             trainer = pl.Trainer(log_every_n_steps=1,
                                 check_val_every_n_epoch=1,
@@ -551,6 +815,7 @@ if __name__ == '__main__':
             #                                     synth_dd,
             #                                     inclusions='orig_and_synthetic',
             #                                     batch_size=args.tot_bsize)
+
             trainer.fit(cgan_classifier, ssld_synth)  # train here
 
             current_model=cgan_classifier
@@ -566,7 +831,7 @@ if __name__ == '__main__':
 
             current_model = type(current_model).load_from_checkpoint(checkpoint_path=candidate_models[0]).cuda()
             # store optimal model
-
+            #set_trace()
             # get the data for validation
             #val_features = ssld_orig.data_validation[0][0]
             val_features = torch.tensor(ssld_orig.data_validation[0][0],device='cuda')
@@ -608,13 +873,13 @@ if __name__ == '__main__':
                     
                     break
 
-            et = time.time()
+        et = time.time()
 
-            print('time taken: {0} minutes'.format((et - st) / 60.))
+        print('time taken: {0} minutes'.format((et - st) / 60.))
 
 
-            cgan_saved=glob.glob(cgan_fn)[0]
-            cgan_saved=cgan_saved.split('.ckpt')[0][-4:]
+        cgan_saved=glob.glob(cgan_fn)[0]
+        cgan_saved=cgan_saved.split('.ckpt')[0][-4:]
 
         # delete old saved models cos we are storing the optimal
         SAVE_FOLDER=dspec.save_folder
@@ -625,7 +890,14 @@ if __name__ == '__main__':
                                                                                         's_i'],
                                                                                     10,
                                                                                     max(optimal_trainer.model.val_accs))
+        
+        
         optimal_trainer.save_checkpoint(filepath)
+        
+        
+        ssld_orig.teardown_end()
+        ssld_synth.teardown_end()
+        
         
         
         test_features=torch.tensor(orig_data['test_features'],device='cuda')
@@ -633,9 +905,22 @@ if __name__ == '__main__':
         ulab_features=torch.tensor(orig_data['unlabel_features'],device='cuda')
         ulab_y=torch.tensor(orig_data['unlabel_y'].flatten(),device='cuda')
 
+        #s#et_trace()
+        #optimal_trainer.model
         with torch.no_grad():
+            
+            
+            
+            #set_trace()
+            
+            
             test_acc = optimal_model.predict_test(features=test_features,label=test_y)
             unlabel_acc = optimal_model.predict_test(features=ulab_features,label=ulab_y)
+            #om=optimal_trainer.model.cuda()
+            #om.eval()
+            
+            #test_acc=om.predict_test(features=test_features,label=test_y)
+            #unlabel_acc=om.predict_test(features=ulab_features,label=ulab_y) #better?
 
         #test_acc = optimal_model.predict_test(orig_data['test_features'].cuda(), orig_data['test_y'].flatten().cuda())
         #unlabel_acc = optimal_model.predict_test(orig_data['unlabel_features'].cuda(), orig_data['unlabel_y'].flatten().cuda())
@@ -651,6 +936,9 @@ if __name__ == '__main__':
                                                                         optimal_trainer.model.hparams[
                                                                             's_i'])
         np.savetxt(filepath, unlabel_acc)
+
+
+
 
         print(f'test_acc: {test_acc}')
         print(f'unlabel_acc: {unlabel_acc}')
@@ -670,3 +958,7 @@ if __name__ == '__main__':
         # DELETE OPTIMALS SO CAN RESTART IF DOING MULTIPLE S_I
         del optimal_trainer
         del optimal_model
+        del current_model
+        del ssld_synth
+        del ssld_orig
+        #del trainer

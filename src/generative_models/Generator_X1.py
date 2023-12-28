@@ -7,9 +7,16 @@ from benchmarks_cgan import *
 
 
 
+import sys
+
+sys.path.append('src')
 
 
 
+from benchmarks_utils import make_mlp
+
+
+from IPython.core.debugger import set_trace
 
 class Generator_X1(pl.LightningModule):
     def __init__(self,
@@ -19,14 +26,18 @@ class Generator_X1(pl.LightningModule):
                  dn_log,
                  input_dim,
                  median_pwd,
-                 num_hidden_layer,
-                 middle_layer_size,
+                 gen_layers=[100,5],
+                 middle_layer_size=50,
+                 num_hidden_layer=1,
                  precision=32,
                  sel_device='gpu',
                  label_batch_size=4,
-                 unlabel_batch_size=256):
+                 unlabel_batch_size=256,
+                 batchnorm=False,**kwargs):
         super().__init__()
         self.save_hyperparameters()
+        
+        
         output_dim=input_dim
         input_dim=input_dim
         self.input_dim=input_dim
@@ -39,13 +50,22 @@ class Generator_X1(pl.LightningModule):
         if self.hparams.num_hidden_layer==5:
             self.gen=get_standard_net(input_dim=input_dim,
                                       output_dim=output_dim)
+            
+            
+        # self.gen = make_mlp(input_dim=input_dim,
+        #             hidden_layers=gen_layers,
+        #             output_dim=input_dim,
+        #             batchnorm=batchnorm)
+        
+        
+        #set_trace()
 
         self.vmmd_losses=[]
         self.tmmd_losses=[]
         
         
-        self.noise_placeholder_val=torch.zeros((12000,2),device=torch.device('cuda'))
-        self.noise_placeholder_train=torch.zeros((256,2),device=torch.device('cuda'))
+        self.noise_placeholder_val=torch.zeros((12000,input_dim),device=torch.device('cuda'))
+        self.noise_placeholder_train=torch.zeros((256,input_dim),device=torch.device('cuda'))
         
         
         
@@ -56,8 +76,19 @@ class Generator_X1(pl.LightningModule):
         self.hparams.s_i=torch.tensor(float(self.hparams.s_i),device=torch.device('cuda'))
         
         
+        self.precision=int(precision)
+        self.sel_device=sel_device
+
+        self.conditional_on_y=False
+        
+        
+        
+    def set_precompiled(self,dop):
+        
+        sel_device=self.sel_device
+                
         sel_dtype=torch.float32
-        if precision==16:
+        if self.precision==16:
             sel_dtype=torch.float16
             
         if 'gpu' in sel_device or 'cuda' in sel_device:
@@ -66,10 +97,10 @@ class Generator_X1(pl.LightningModule):
             sel_device=torch.device('cpu')
             
         
-        sigma_list=torch.tensor([self.hparams.median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]],dtype=sel_dtype,device=sel_device)
+        self.sigma_list=torch.tensor([self.hparams.median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]],dtype=sel_dtype,device=sel_device)
             
         
-        rbf_kern=torch.compile(mix_rbf_mmd2_class(sigma_list=sigma_list).to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        rbf_kern=dop['mix_rbf_mmd2']
         #X=torch.randn((4,2),dtype=torch.float16,device=torch.device('cuda'))
         
         #dummy=rbf_kern(X,X)
@@ -99,7 +130,7 @@ class Generator_X1(pl.LightningModule):
         #gen_input=z
         #prediction
         x_hat=self.gen(self.noise_placeholder_train[:target_x.shape[0]])
-        loss=self.rbf_kern(x_hat,target_x)
+        loss=self.rbf_kern(x_hat,target_x,self.sigma_list)
         self.log('mmd_loss', loss)
         return(loss)
 
@@ -115,7 +146,7 @@ class Generator_X1(pl.LightningModule):
         #self.first_func()
         
         #median pwd of entire labelled + unlabelled
-        sigma_list = [self.hparams.median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]]
+        #sigma_list = [self.hparams.median_pwd * x for x in [0.125, 0.25, 0.5, 1, 2]]
         #get median pwd of val only and see if it maeks a difference
         val_feat=batch[0].squeeze(0)
         trans_feat=val_feat
@@ -139,10 +170,11 @@ class Generator_X1(pl.LightningModule):
         
         
         #self.third_func()
+        #set_trace()
         x_hat=self.gen(self.noise_placeholder_train[:val_feat.shape[0]]) #generate x samples random
         #get rbf mmd2 joint
 
-        val_mmd_loss=mix_rbf_mmd2(x_hat,val_feat,sigma_list=sigma_list)
+        val_mmd_loss=self.rbf_kern(x_hat,val_feat,self.sigma_list).detach()
         
         #if x_hat.shape[0]>50000, too big:
         
@@ -153,7 +185,7 @@ class Generator_X1(pl.LightningModule):
 
         #gen_input = torch.randn_like(trans_feat)  # sample noise
         x_hat = self.gen(self.noise_placeholder_val[:trans_feat.shape[0]])  # generate x samples random
-        trans_mmd_loss=mix_rbf_mmd2(x_hat,trans_feat,sigma_list=sigma_list)
+        trans_mmd_loss=self.rbf_kern(x_hat,trans_feat,self.sigma_list).detach()
         
         
         val_trans_mmd_loss=torch.mean(val_mmd_loss + trans_mmd_loss)

@@ -23,6 +23,21 @@ from coloraide import Color # coloraide used to create continuous colour scale f
 from PIL import Image
 import json
 
+
+
+
+
+
+from mmd_mmg import *
+
+
+
+
+
+#torch.set_float32_matmul_precision('high')
+
+
+
 from mlxtend.plotting import plot_decision_regions
 import matplotlib.pyplot as plt
 from pytorch_lightning import loggers as pl_loggers
@@ -103,8 +118,19 @@ def str_to_bool(in_str):
 def combined_name(model_name,d_n,s_i):
     return(f'{model_name}_dn_{d_n}_si_{s_i}')
 
+
+from IPython.core.debugger import set_trace
+
+
 #delete old saved models before starting new training run
-def clear_saved_models(model_name, save_dir, s_i):
+def clear_saved_models(model_name, save_dir, s_i):#,nuclear=False):
+    
+    
+    #from IPython.core.debugger import set_trace
+    
+    
+    ##set_trace()
+
     old_fn_match = f'{model_name}*-s_i={s_i}-*.ckpt'
     old_models = glob.glob(f'{save_dir}/saved_models/{old_fn_match}')
     delete_models = [m for m in old_models]
@@ -171,6 +197,60 @@ def get_gpu_kwargs(args):
 #     return(net)
 
 
+
+
+
+
+
+
+def make_mlp(input_dim,hidden_layers,output_dim,batchnorm=False):
+    
+    
+    
+    all_layers=[input_dim]+hidden_layers+[output_dim]
+    
+    
+    
+    # net = nn.Sequential(
+    #     nn.Linear(input_dim, hidden_layers[0]),
+    #     nn.ReLU(),
+    #     nn.Linear(100, 5),
+    #     nn.ReLU(),
+    #     nn.Linear(5, output_dim)
+    # )
+    
+
+    
+    modules=[]
+
+    from torch import nn
+
+    for m in range(1,len(all_layers)):
+        #modules+=[  nn.Linear(all_layers[m-1], all_layers[m]),nn.ReLU(),]
+        
+        if batchnorm and m==1:
+            modules+=[  nn.Linear(all_layers[m-1], all_layers[m]),torch.nn.BatchNorm1d(all_layers[m]),nn.ReLU(),]
+        else:
+            modules+=[  nn.Linear(all_layers[m-1], all_layers[m]),nn.ReLU(),]
+            
+        
+        
+        
+        
+    #drop the last relu!! 
+    
+    modules=modules[:-1]
+    
+    net = nn.Sequential(*modules)
+
+    
+    return(net)
+
+
+
+
+
+
 def get_standard_net(input_dim,output_dim):
     net = nn.Sequential(
         nn.Linear(input_dim, 100),
@@ -208,6 +288,8 @@ def get_tanh_net_synthetic(input_dim,output_dim):
 #-----------------------------------
 
 
+
+
 # xavier uniform initialisation
 def init_weights_xavier_uniform(m):
     if isinstance(m, nn.Linear):
@@ -217,9 +299,20 @@ def init_weights_xavier_uniform(m):
 #use he_kaiming initialisation, ie:
 #https://arxiv.org/abs/1502.01852v1
 def init_weights_he_kaiming(m):
+    
+    #print('resetting weights for net...')
+    
     if isinstance(m, nn.Linear):
+        m_old_w=m.weight.flatten().clone()[:3]
+        #print('resetting linear layer using he kaming...')
         torch.nn.init.kaiming_uniform_(m.weight, a=0, mode='fan_in', nonlinearity='relu')
         m.bias.data.fill_(0.01)
+        m_new_w=m.weight.flatten().clone()[:3]
+        
+        #print('weights old v noew')
+        #print(m_old_w)
+        #print(m_new_w)
+        
 
 #zero bias used for nonlinear decision boundary generator
 def init_weights_zero_bias(m):
@@ -376,11 +469,11 @@ from IPython.core.debugger import set_trace
 
 def load_optimal_model(dspec, current_model):
     # load optimal model
-    #set_trace()
+    ##set_trace()
     model_to_search_for = dspec.save_folder + '/saved_models/' + current_model.model_name + "*-s_i={0}-epoch*".format(current_model.hparams['s_i'])
     candidate_models = glob.glob(model_to_search_for)
     #assert(len(candidate_models)==1)
-    #set_trace()
+    ##set_trace()
     print(f'loading optimal for {current_model.model_name}')
     print(candidate_models)
     
@@ -400,7 +493,7 @@ def return_optimal_model(current_model, trainer, optimal_model,optimal_trainer,v
         optimal_model.eval()
         current_model.eval()
 
-        #set_trace()
+        ##set_trace()
         
         
         with torch.no_grad():
@@ -467,6 +560,42 @@ def evaluate_on_test_and_unlabel(dspec, args, si_iter,current_model,optimal_mode
 
     print(f'test_acc: {test_acc}')
     print(f'unlabel_acc: {unlabel_acc}')
+
+def evaluate_on_test_and_unlabel_for_optuna(dspec, args, si_iter,current_model,optimal_model,orig_data,optimal_trainer):
+
+    dsc_loader = eval(dspec.dataloader_function)  # within the spec
+    dsc = dsc_loader(args, si_iter, dspec)
+    dsc = manipulate_dsc(dsc, dspec)
+    dsc.s_i = si_iter
+
+    optimal_model.eval()
+    
+    test_features=torch.tensor(orig_data['test_features'],device='cuda').float()
+    test_y=torch.tensor(orig_data['test_y'],device='cuda').float()
+    ulab_features=torch.tensor(orig_data['unlabel_features'],device='cuda').float()
+    ulab_y=torch.tensor(orig_data['unlabel_y'],device='cuda').float()
+
+    with torch.no_grad():
+
+        test_acc = optimal_model.predict_test(test_features, torch.argmax(test_y, 1)).cpu().item()
+        unlabel_acc = optimal_model.predict_test(ulab_features,torch.argmax(ulab_y, 1)).cpu().item()
+
+    # test_acc = np.array([test_acc.cpu().detach().item()])
+    # filepath = "{0}/saved_models/{1}-s_i={2}_test_acc.out".format(dspec.save_folder,
+    #                                                               current_model.model_name,
+    #                                                               optimal_trainer.model.hparams['s_i'])
+    # np.savetxt(filepath, test_acc)
+
+    # unlabel_acc = np.array([unlabel_acc.cpu().detach().item()])
+    # filepath = "{0}/saved_models/{1}-s_i={2}_unlabel_acc.out".format(dspec.save_folder,
+    #                                                                  current_model.model_name,
+    #                                                                  optimal_trainer.model.hparams['s_i'])
+    # np.savetxt(filepath, unlabel_acc)
+
+    # print(f'test_acc: {test_acc}')
+    # print(f'unlabel_acc: {unlabel_acc}')
+
+    return(dict(test_acc=test_acc,unlabel_acc=unlabel_acc))
 
 
 
@@ -1019,178 +1148,67 @@ def get_dspec(d_n):
 
 
 
-from typing import IO, Any, Dict, Iterable, Optional, Union, cast
-
-
-# combine synthetic data w original labelled data
-class CGANSupervisedDataModule(pl.LightningDataModule):
-    def __init__(self, orig_data, synth_dd,inclusions, batch_size: int = 64,n_to_sample_for_orig: str='unlabelled'):
-        super().__init__()
-        self.orig_data = orig_data
-        self.batch_size = batch_size
-        self.synth_dd=synth_dd
-        self.inclusions=inclusions
-        self.n_to_sample_for_orig=n_to_sample_for_orig#'labelled' #'unlabelled'
-
-    def setup(self, stage: Optional[str] = None):
-        orig_data = self.orig_data
-        synth_dd=self.synth_dd
-
-        # ----------#
-        # Training Labelled
-        # ----------#
-        X_train_lab = orig_data['label_features']
-        y_train_lab = orig_data['label_y'].long()
-
-        # ----------#
-        # Training Unlabelled
-        # ----------#
-        X_train_ulab = orig_data['unlabel_features']
-        y_train_ulab = orig_data['unlabel_y'].long()
-
-        # -------------#
-        # Validation
-        # -------------#
-
-        X_val = orig_data['val_features']
-        y_val = orig_data['val_y'].long()
-
-        # ----------#
-        # Synthetic Data
-        # ----------#
-        X_train_synthetic = synth_dd['synthetic_features']
-        y_train_synthetic = synth_dd['synthetic_y'].long().reshape(-1,1)
 
 
 
-        #print(self.inclusions)
-        if self.inclusions == 'orig_and_synthetic':
-            #X_train_total = torch.cat((X_train_lab, X_train_synthetic), 0)
-            #y_train_total = torch.cat((y_train_lab.flatten(), y_train_synthetic.flatten()), 0).reshape((-1,1))
-            
-
-            
-            n_unlabelled = X_train_ulab.shape[0]
-            n_labelled = X_train_lab.shape[0]
-            dummy_label_weights = torch.ones(n_labelled)
-
-            
-            if self.n_to_sample_for_orig=='labelled':
-                num_samples=n_labelled
-            
-            elif self.n_to_sample_for_orig=='unlabelled':
-                num_samples=n_unlabelled
-                
-            elif self.n_to_sample_for_orig=='baseline':
-                num_samples=2000 #keep in line with original datsets
-                
-            
-            resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
-            X_train_lab_rs = X_train_lab[resampled_i]
-            y_train_lab_rs = y_train_lab[resampled_i]
 
 
-            X_train_total = X_train_lab_rs
-            y_train_total = y_train_lab_rs
-            
-            
-            
-            #select a smaller subset of the synthetic data to train on, like 10,000 synthetic....
-            
-            
-            # N_SYNTHETIC=5000
-            
-            # sel_i=torch.randperm(X_train_synthetic.shape[0])[:N_SYNTHETIC]
-            
-            # N_LAB=5000
-            # sel_il=torch.randperm(X_train_total.shape[0])[:N_LAB]
-            
-            
-            # X_train_total = torch.cat((X_train_total[sel_i], X_train_synthetic[sel_i]), 0)
-            # y_train_total = torch.cat((y_train_total[sel_i].flatten(), y_train_synthetic[sel_i].flatten()), 0).reshape((-1,1))
-            
-            
-            # N_SYNTHETIC=5000
-            
-            # sel_i=torch.randperm(X_train_synthetic.shape[0])[:N_SYNTHETIC]
-            
-            # N_LAB=5000
-            # sel_il=torch.randperm(X_train_total.shape[0])[:N_LAB]
-            
-            
-            X_train_total = torch.cat((X_train_total, X_train_synthetic), 0)
-            y_train_total = torch.cat((y_train_total.flatten(), y_train_synthetic.flatten()), 0).reshape((-1,1))
-            
-            
-            
+                        
+
         
 
-        elif self.inclusions=='orig_only':
 
-            # -------------#
-            # Setting up resampling
-            # -------------#
-
-            n_unlabelled = X_train_ulab.shape[0]
-            n_labelled = X_train_lab.shape[0]
-            dummy_label_weights = torch.ones(n_labelled)
-            
-            if self.n_to_sample_for_orig=='labelled':
-                num_samples=n_labelled
-            
-            elif self.n_to_sample_for_orig=='unlabelled':
-                num_samples=n_unlabelled
-                
-            elif self.n_to_sample_for_orig=='baseline':
-                num_samples=2000 #keep in line with original datsets
-                
-            
-            resampled_i = torch.multinomial(dummy_label_weights, num_samples=num_samples, replacement=True)
-            X_train_lab_rs = X_train_lab[resampled_i]
-            y_train_lab_rs = y_train_lab[resampled_i]
-
-
-            X_train_total = X_train_lab_rs
-            y_train_total = y_train_lab_rs.flatten().reshape((-1,1))
-
-
-        elif self.inclusions=='synthetic_only':
-            X_train_total = X_train_synthetic
-            y_train_total = y_train_synthetic.reshape((-1,1))
-        else:
-            assert(1==0)
-
-
-        self.data_train = torch.utils.data.TensorDataset(X_train_total,
-                                                         y_train_total)
-
-        # Validation Sets
-        vfeat = X_val.unsqueeze(0)
-        vlab = y_val.unsqueeze(0)
-        self.data_validation = torch.utils.data.TensorDataset(vfeat, vlab)
-        self.nval = vlab.shape[0]
-
-        return (self)
-
-    # def train_dataloader(self):
-    #     return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
-
-    # def val_dataloader(self):
-    #     return DataLoader(self.data_validation, batch_size=self.nval)
+def return_dict_of_precompiled_mmd(mode='no_compile'):
     
-    def train_dataloader(self):
-        has_gpu=torch.cuda.is_available()
-        if has_gpu:
-            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True, pin_memory=True,num_workers=4,persistent_workers=True) #nb change thise
-        else:
-            return DataLoader(self.data_train, batch_size=self.batch_size, shuffle=True)
+    
+    valid_mode=(mode=='no_compile' or mode=='reduce-overhead' or mode=='max-autotune')
+    
+    assert valid_mode, f'error mode is not valid: mode={mode}'
+    
+    dict_of_precompiled={}
+    
+    
+            #rb_m=mix_rbf_kernel_class()
+        #mmd2_raw=mmd2_class()
+    
+    if mode=='no_compile':
+            
+        dict_of_precompiled['mix_rbf_kernel']=mix_rbf_kernel_class().to(torch.float16).cuda()#,fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2']=mix_rbf_mmd2_class().to(torch.float16).cuda()#,fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2_joint_1_feature_1_label']=mix_rbf_mmd2_joint_1_feature_1_label().to(torch.float16).cuda()#,fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature']=mix_rbf_mmd2_joint_regress_2_feature().to(torch.float16).cuda()#,fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature_1_label']=mix_rbf_mmd2_joint_regress_2_feature_1_label().to(torch.float16).cuda()
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_3_feature_1_label']=mix_rbf_mmd2_joint_regress_3_feature_1_label().to(torch.float16).cuda()
 
-    def val_dataloader(self):
-        has_gpu=torch.cuda.is_available()
-        if has_gpu:
-            return DataLoader(self.data_validation, batch_size=self.nval, pin_memory=True, num_workers=4,persistent_workers=True) #nb change thise
-        else:
-            return DataLoader(self.data_validation, batch_size=self.nval)
+        dict_of_precompiled['mmd2_raw']=mmd2_class().to(torch.float16).cuda()
+        dict_of_precompiled['rb_m']=mix_rbf_kernel_class().to(torch.float16).cuda()
 
+    
+        
+    elif mode=='reduce-overhead':
+        
+        dict_of_precompiled['mix_rbf_kernel']=torch.compile(mix_rbf_kernel_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2']=torch.compile(mix_rbf_mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2_joint_1_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_1_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_3_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_regress_3_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        #dict_of_precompiled['mix_rbf_mmd2_joint_regress_3_feature_1_label']=mix_rbf_mmd2_joint_regress_3_feature_1_label().to(torch.float16).cuda()
+        dict_of_precompiled['mmd2_raw']=torch.compile(mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
+        dict_of_precompiled['rb_m']=torch.compile(mix_rbf_kernel_class().to(torch.float16).cuda(),fullgraph=True,mode='reduce-overhead')
 
+        
+    elif mode=='max-autotune':
+        
+        
+        dict_of_precompiled['mix_rbf_kernel']=torch.compile(mix_rbf_kernel_class().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+        dict_of_precompiled['mix_rbf_mmd2']=torch.compile(mix_rbf_mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+        dict_of_precompiled['mix_rbf_mmd2_joint_1_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_1_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_2_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_regress_2_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+        dict_of_precompiled['mix_rbf_mmd2_joint_regress_3_feature_1_label']=torch.compile(mix_rbf_mmd2_joint_regress_3_feature_1_label().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
 
+        dict_of_precompiled['mmd2_raw']=torch.compile(mmd2_class().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+        dict_of_precompiled['rb_m']=torch.compile(mix_rbf_kernel_class().to(torch.float16).cuda(),fullgraph=True,mode='max-autotune')
+
+    return dict_of_precompiled

@@ -44,7 +44,7 @@ class dargs:
         return
 
 
-# for debugging if need, write set_trace() and it will call from terminal
+# for debugging if need, write ###set_trace() and it will call from terminal
 from IPython.core.debugger import set_trace
 
 #-----------------------------------
@@ -106,7 +106,7 @@ def return_chkpt_min_val_trans_mmd(model_name,data_dir):
     checkpoint_callback = ModelCheckpoint(
         monitor="val_trans_mmd",
         dirpath="{0}/saved_models".format(data_dir),
-        filename=model_name+ "-{s_i:.0f}-{epoch:02d}-{trans_mmd:.2f}",
+        filename=model_name+ "-{s_i:.0f}-{epoch:02d}-{val_trans_mmd:.2f}",
         save_top_k=1,
         mode="min",
     )
@@ -205,7 +205,7 @@ def create_trainer(logger,callbacks,gpu_kwargs,max_epochs,profiler=None,**kwargs
                         profiler=profiler,
                         accelerator='gpu',
                         #devices=0,
-                        enable_progress_bar=True,
+                        enable_progress_bar=False,
                         #**gpu_kwargs,
                         **kwargs)
                         #reload_dataloaders_every_n_epochs=1)
@@ -591,7 +591,7 @@ def generate_samples_to_dict(dsc, has_gpu, dsc_generators, device_string,n_sampl
                         y_probs = get_softmax(synthetic_samples.float())  # [:,1]
                         # and take these as prob of y=0,1
                         y_samples = torch.bernoulli(y_probs)
-                    # set_trace()
+                    # ###set_trace()
                     # make sure is one_hot vector...
                     synthetic_samples = synthetic_samples.argmax(1)
                     synthetic_samples = torch.nn.functional.one_hot(synthetic_samples)
@@ -600,7 +600,7 @@ def generate_samples_to_dict(dsc, has_gpu, dsc_generators, device_string,n_sampl
 
                 else:
                     # sample noise....
-                    # set_trace()
+                    # ###set_trace()
                     z = torch.randn((n_samples, dsc.feature_dim), device=device_string)
                     synthetic_samples = cur_gen.forward(z)
                 synthetic_data[cur_lab] = synthetic_samples
@@ -620,7 +620,7 @@ def generate_samples_to_dict(dsc, has_gpu, dsc_generators, device_string,n_sampl
 
 
 
-                # set_trace()
+                # ###set_trace()
                 # now concatenate this one
                 cat_cond_sdata = torch.cat(conditional_sdata, 1)
                 # if label Y, then no noise..
@@ -647,20 +647,67 @@ def generate_samples_to_dict(dsc, has_gpu, dsc_generators, device_string,n_sampl
 
 
 # synthetic samples generation
-def generate_samples_to_dict_tripartite(dsc, has_gpu, dsc_generators, device_string,n_samples=10000,gumbel=False,tau=None):
+def generate_samples_to_dict_tripartite(dsc, has_gpu, dsc_generators, device_string,n_samples=10000,gumbel=False,tau=None,use_gt_cspouse=True):
     with torch.no_grad():
         synthetic_data = {}
+        
+        cause_spouse_vars=dsc_generators['ordered_v']['cause']
+        
+        synthetic_dfs={}
 
         #cause generator first
         print('synthesising for: CAUSE / SPOUSE')
+        
+        
+        if not use_gt_cspouse:
 
-        cause_spouse_labels=dsc_generators['ordered_v_alphan']['cause']
+            cause_spouse_labels=dsc_generators['ordered_v_alphan']['cause']
 
-        z = torch.randn((n_samples, len(cause_spouse_labels)), device='cpu')
-        dsc_generators['cause_spouse_generator'].to('cpu')
-        synthetic_samples = dsc_generators['cause_spouse_generator'].forward(z)
+            z = torch.randn((n_samples, len(cause_spouse_labels)), device='cpu')
+            dsc_generators['cause_spouse_generator'].to('cpu')
+            synthetic_samples = dsc_generators['cause_spouse_generator'].forward(z)
 
-        synthetic_df=pd.DataFrame(synthetic_samples.numpy(),columns=cause_spouse_labels)
+            synthetic_df=pd.DataFrame(synthetic_samples.detach().numpy(),columns=cause_spouse_labels)
+
+
+
+
+        if use_gt_cspouse:
+            
+            unlabelled_data=dsc.merge_dat[dsc.merge_dat.type=='unlabelled']
+            
+            
+            n_samples=unlabelled_data.shape[0]
+            
+            
+            print('using gt cause spouse, hence we will NOT synthesis according to defined n_samples')
+            
+            sdf=[]
+            
+            for cs in cause_spouse_vars:
+                alphan=dsc.label_names_alphan[cs]
+                
+                sdf.append(unlabelled_data[alphan])
+                vals=torch.tensor(unlabelled_data[alphan].values,device='cpu').float()
+
+                synthetic_data[cs]=vals
+
+
+
+
+            synthetic_df=pd.concat(sdf,axis=1)
+
+
+
+
+
+
+
+
+
+
+
+
 
         #label genrator next
         print('synthesising for: LABEL')
@@ -669,14 +716,21 @@ def generate_samples_to_dict_tripartite(dsc, has_gpu, dsc_generators, device_str
         #dsc_generators['ordered_v']['label']['inputs_alphan'] = concat_cond_lab
         #dsc_generators['ordered_v']['label']['output'] = dsc.labels[v_i]
 
+
+        ####set_trace()
+        
+        
         l_var=dsc_generators['ordered_v']['label']['output']
 
         dsc_generators[l_var].to('cpu')
 
+        ##set_trace()
 
-        current_inputs=dsc_generators['ordered_v']['label']['inputs_alphan']
-        current_input_values=torch.tensor(synthetic_df[current_inputs].values,device='cpu')
 
+        current_inputs=dsc_generators['ordered_v']['label']['inputs_alphan']    
+        current_input_values=torch.tensor(synthetic_df[current_inputs].values,device='cpu').float()
+
+        ####set_trace()
         #z = torch.randn((n_samples, len(cause_spouse_labels)), device=device_string)
         synthetic_samples = torch.bernoulli(torch.nn.functional.softmax(dsc_generators[l_var].forward(current_input_values),1)[:,1])
 
@@ -684,6 +738,26 @@ def generate_samples_to_dict_tripartite(dsc, has_gpu, dsc_generators, device_str
 
 
         synthetic_data[l_var]=torch.nn.functional.one_hot(synthetic_samples.long()).float()
+
+
+        #split out into individual vars...
+        
+        
+        cause_spouse_vars=dsc_generators['ordered_v']['cause']
+        
+
+        for cs in cause_spouse_vars:
+            #get alphan...
+            alphan=dsc.label_names_alphan[cs]
+            vals=torch.tensor(synthetic_df[alphan].values,device='cpu').float()
+            
+            synthetic_data[cs]=vals
+        
+        ##set_trace()
+        
+
+                
+        #synthetic_df[current_inputs]
 
 
         #cs_df=pd.DataFrame(synthetic_samples,columns=[l_var])
@@ -707,44 +781,77 @@ def generate_samples_to_dict_tripartite(dsc, has_gpu, dsc_generators, device_str
         #dsc_generators['ordered_v']['effect']['input_label_alphan'] = label_name
         #dsc_generators['ordered_v']['effect']['outputs'] = conditional_feature_names
         #dsc_generators['ordered_v']['effect']['outputs_alphan'] = cur_x_lab
+        
+        ##set_trace()
+        for c in dsc_generators['ordered_v']['effect']['label_names']:
+            
+            ancestor_vars=dsc_generators[c].conditional_feature_names
+            
+            
+            ancestor_vals=[synthetic_data[av] for av in ancestor_vars]
+            
+            ancestors=torch.cat(ancestor_vals,dim=1)
+            
+        
+            z = torch.randn((n_samples, dsc.feature_dim), device='cpu')
+            
+            if dsc_generators[c].conditional_on_y:
+                yvals=synthetic_data[dsc.label_var]
+                ancestors=torch.cat((ancestors,yvals),dim=1)
+        
+            gen_input=torch.cat((z,ancestors),dim=1).to('cpu').float()
+            
+            
+            dsc_generators[c]=dsc_generators[c].cpu()
+            
+            #set_trace()
+            synthetic_samples = dsc_generators[c].forward(gen_input)
+            
+            
+            synthetic_data[c]=synthetic_samples
+            
+            
+            
+            #synthetic_dfs[c]=pd.DataFrame(synthetic_samples.detach().cpu().numpy(),columns=dsc.label_names_alphan[c])
+        #dsc.label_names_alphan[c]
 
-        current_feature_inputs = dsc_generators['ordered_v']['effect']['input_features_alphan']
-        current_feature_input_values = torch.tensor(synthetic_df[current_feature_inputs].values, device='cpu')
+        # current_feature_inputs = dsc_generators['ordered_v']['effect']['input_features_alphan']
+        # current_feature_input_values = torch.tensor(synthetic_df[current_feature_inputs].values, device='cpu')
 
-        current_feature_outputs=dsc_generators['ordered_v']['effect']['outputs_alphan']
+        # current_feature_outputs=dsc_generators['ordered_v']['effect']['outputs_alphan']
 
-        z = torch.randn((n_samples, len(current_feature_outputs)), device='cpu')
+        # z = torch.randn((n_samples, len(current_feature_outputs)), device='cpu')
 
-        cat_input=torch.cat((z,current_feature_input_values),1)
+        # cat_input=torch.cat((z,current_feature_input_values),1)
 
-        #now cat w label
+        # #now cat w label
 
-        cat_input_w_label=torch.cat((cat_input,synthetic_data[l_var]),1).float()
-
-
-
-        dsc_generators['effect_generator'].to('cpu')
-        # z = torch.randn((n_samples, len(cause_spouse_labels)), device=device_string)
-        synthetic_samples = dsc_generators['effect_generator'].forward(cat_input_w_label)
+        # cat_input_w_label=torch.cat((cat_input,synthetic_data[l_var]),1).float()
 
 
 
-        cs_df = pd.DataFrame(synthetic_samples.numpy(), columns=current_feature_outputs)
+        # dsc_generators['effect_generator'].to('cpu')
+        # # z = torch.randn((n_samples, len(cause_spouse_labels)), device=device_string)
+        # synthetic_samples = dsc_generators['effect_generator'].forward(cat_input_w_label)
 
-        synthetic_df = pd.concat([synthetic_df, cs_df], axis=1)
 
 
-        #now split out into the dict of values
-        #to maintain compatilibity w existing code
+        # cs_df = pd.DataFrame(synthetic_samples.numpy(), columns=current_feature_outputs)
 
-        #get labels...
-        all_features=dsc.feature_names
-        for f in all_features:
-            #get alphan name (for multidim)
-            alphan_name=dsc.label_names_alphan[f]
-            #assign to dict
-            synthetic_data[f]=synthetic_df[alphan_name]
-            synthetic_data[f]=torch.tensor(synthetic_data[f].values)
+        # synthetic_df = pd.concat([synthetic_df, cs_df], axis=1)
+
+
+        # #now split out into the dict of values
+        # #to maintain compatilibity w existing code
+
+        # #get labels...
+        # all_features=dsc.feature_names
+        # for f in all_features:
+        #     #get alphan name (for multidim)
+        #     alphan_name=dsc.label_names_alphan[f]
+        #     #assign to dict
+        #     synthetic_data[f]=synthetic_df[alphan_name]
+        #     synthetic_data[f]=torch.tensor(synthetic_data[f].values)
 
         for f in [dsc.label_var]:
             synthetic_data[f]=synthetic_data[l_var]
@@ -758,7 +865,7 @@ def generate_samples_to_dict_tripartite(dsc, has_gpu, dsc_generators, device_str
 
 
 # synthetic samples to dictionary
-def samples_dict_to_df(dsc, synthetic_data, balance_labels=True,exact=False):
+def samples_dict_to_df(dsc, synthetic_data, balance_labels=True,exact=False,extra_sample_frac=1.0,resample=True):
     synthetic_df = {}
 
     order_to_generate = dsc.dag.topological_sorting()
@@ -829,6 +936,76 @@ def samples_dict_to_df(dsc, synthetic_data, balance_labels=True,exact=False):
         print('total size of df: {0} rows'.format(joined_synthetic_data.shape[0]))
 
 
+    if balance_labels and resample==False:
+        print('balancing labels in same proportion as exist in training dataset. ie: not necessarily exact')
+
+        orig_lidx=np.where(np.array(dsc.variable_types)=='label')[0][0]
+        orig_lname=dsc.label_names[orig_lidx][0]
+
+        df_for_label_estimate=dsc.merge_dat[dsc.merge_dat.type.isin(['labelled','validation'])]
+        
+        
+        
+        
+
+
+        orig_labels=df_for_label_estimate[orig_lname]
+        orig_p0=sum(orig_labels==0)/df_for_label_estimate.shape[0]
+        orig_p1=sum(orig_labels==1)/df_for_label_estimate.shape[0]
+
+        
+        n_synthetic=joined_synthetic_data.shape[0]
+        
+        
+        synth_c0 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 0]
+        synth_c1 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 1]
+        
+        
+        
+        #set_trace()
+        
+        prop_avail_c0=synth_c0.shape[0]/joined_synthetic_data.shape[0]
+        prop_avail_c1=synth_c1.shape[0]/joined_synthetic_data.shape[0]
+        
+        ratio_c0=prop_avail_c0/orig_p0
+        
+        ratio_c1=prop_avail_c1/orig_p1
+
+        
+        min_ratio=min(ratio_c0,ratio_c1)
+        
+        
+        
+        
+        
+        
+        
+        n_op_0=int(orig_p0*n_synthetic)
+        n_op_1=int(orig_p1*n_synthetic)
+        
+        n_op_0_rs=int(n_op_0*min_ratio)-1
+        n_op_1_rs=int(n_op_1*min_ratio)-1
+        
+        
+        
+        newsize=n_synthetic*min_ratio #total n of new samples....
+        
+        
+        
+        num_c0 = synth_c0.shape[0]
+        num_c1 = synth_c1.shape[0]
+        print('num c0 {0}'.format(num_c0))
+        print('num c1 {0}'.format(num_c1))
+        # sample according to prop in orig data dsc.merge_dat
+        synth_c1 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 1].sample(n_op_1_rs)
+        synth_c0 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 0].sample(n_op_0_rs)
+
+        print('number of samples w label==1: {0}'.format(synth_c1.shape[0]))
+        print('number of samples w label==0: {0}'.format(synth_c0.shape[0]))
+        joined_synthetic_data = pd.concat((synth_c0, synth_c1), axis=0, ignore_index=True)
+        print('total size of df: {0} rows'.format(joined_synthetic_data.shape[0]))
+        
+        
     if balance_labels and not exact:
 
         print('balancing labels in same proportion as exist in training dataset. ie: not necessarily exact')
@@ -837,12 +1014,18 @@ def samples_dict_to_df(dsc, synthetic_data, balance_labels=True,exact=False):
 
         orig_lname=dsc.label_names[orig_lidx][0]
 
-        orig_labels=dsc.merge_dat[orig_lname]
-        orig_p0=sum(orig_labels==0)/dsc.merge_dat.shape[0]
-        orig_p1=sum(orig_labels==1)/dsc.merge_dat.shape[0]
 
-        n_p0=int(orig_p0*dsc.merge_dat[dsc.merge_dat.type=='unlabelled'].shape[0])
-        n_p1 = int(orig_p1 * dsc.merge_dat[dsc.merge_dat.type=='unlabelled'].shape[0])
+        df_for_label_estimate=dsc.merge_dat[dsc.merge_dat.type.isin(['labelled','validation'])]
+        
+
+
+
+        orig_labels=df_for_label_estimate[orig_lname]
+        orig_p0=sum(orig_labels==0)/df_for_label_estimate.shape[0]
+        orig_p1=sum(orig_labels==1)/df_for_label_estimate.shape[0]
+
+        n_p0=int(orig_p0*dsc.merge_dat[dsc.merge_dat.type=='unlabelled'].shape[0]*extra_sample_frac)
+        n_p1 = int(orig_p1 * dsc.merge_dat[dsc.merge_dat.type=='unlabelled'].shape[0]*extra_sample_frac)
         # subset to proportion of 0,1 found in original sample, (ie. not necessarily exact)
         synth_c0 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 0]
         synth_c1 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 1]
@@ -852,10 +1035,14 @@ def samples_dict_to_df(dsc, synthetic_data, balance_labels=True,exact=False):
         print('num c0 {0}'.format(num_c0))
         print('num c1 {0}'.format(num_c1))
         # sample according to prop in orig data dsc.merge_dat
+        synth_c1 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 1]#.sample(n_p1)
+        synth_c0 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 0]#.sample(n_p0)
 
+        #set_trace()
 
-        synth_c1 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 1].sample(n_p1)
-        synth_c0 = joined_synthetic_data[joined_synthetic_data[dsc.label_var] == 0].sample(n_p0)
+        if resample:
+            synth_c1 = synth_c1.sample(n_p1)
+            synth_c0 = synth_c0.sample(n_p0)
 
         #now we have how many label==0,1?
         print('number of samples w label==1: {0}'.format(synth_c1.shape[0]))
@@ -921,7 +1108,7 @@ class DAG_dset:
                 # check if it is a root node
                 extra_var = self.adj_mat[:, v]  # these are the linear components added to the variable of interest
                 if np.all([v == 0 for v in extra_var]):
-                    # set_trace()
+                    # ###set_trace()
                     # it is a root node
                     self.bernoulli_parameter = 0.5
                     values[v] = rng.binomial(1, self.bernoulli_parameter, self.n_samples)
@@ -938,7 +1125,7 @@ class DAG_dset:
                         extra_var == 1)  # get index of features which direct causes of y, ie X->y
                     feature_means = 0  # initialise
                     for v_x in feature_contrib_x:
-                        # set_trace()
+                        # ###set_trace()
                         current_feature_means = self.mu_mats[v_x, v_x] + self.bs_mats[
                             v_x, v_x]  # get means of multidimensional X
                         current_feature_weights = self.coeffs_mats[v_x, v]  # weight FROM x TO y
@@ -947,11 +1134,11 @@ class DAG_dset:
                         feature_means += current_feature_weighted_mean
                     # now we have the feature_means to use in sigmoid function
                     for source_vertex, incident in enumerate(extra_var):
-                        # set_trace()
+                        # ###set_trace()
                         # all must be feature variables, so it is straightforward to add them
                         if incident == 1:
                             sum_feats_v = self.coeffs_mats[source_vertex, v] * values[source_vertex]
-                            # set_trace()
+                            # ###set_trace()
                             theta_v_y += sum_feats_v.sum(1).reshape(-1, 1)  # sum over columns
 
                     # theta_v should look like [s1,s2,s3,...], ie, row vector
@@ -962,7 +1149,7 @@ class DAG_dset:
                     # now, set this to values[v]
                     values[v] = y_labels
             else:
-                # set_trace()
+                # ###set_trace()
                 theta_v = rng.multivariate_normal(self.mu_mats[v, v], self.cov_mats[v, v], self.n_samples) + \
                           self.bs_mats[v, v]
                 extra_var = self.adj_mat[:, v]  # these are the linear components added to the variable of interest
@@ -976,10 +1163,10 @@ class DAG_dset:
                         # stack coeffs for self.n_samples
                         coef_stack = np.vstack([self.coeffs_mats[source_vertex, v]] * self.n_samples)
                         # multiply by weights each row of y
-                        # set_trace()
+                        # ###set_trace()
                         y_coeffs = coef_stack * y_stack.reshape(-1, 1)
                         # adding weighted y contribution
-                        # set_trace()
+                        # ###set_trace()
                         y_contrib = y_coeffs * incident
                         theta_v += y_contrib
                     else:  # it's a feature variable
@@ -1099,7 +1286,7 @@ class DAG_dset:
 
         self.class_varname = [v for v in all_vars if 'Y' in v]
 
-        # set_trace()
+        # ###set_trace()
 
         # labelled
 
@@ -1208,9 +1395,8 @@ def reduce_list(in_list):
     return (sum(in_list, []))
 
 
-
 # plot synthetic and real data together on plotly.express for visual confirmation of modelled dist
-def plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_data, synthetic_data_dir,dspec):
+def plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_data, synthetic_data_dir,dspec,scale_for_indiv_plot=1,scale_for_cat_plot=0.3):
     print('constructing plot for real and syntheitc data...')
     d = hpms_dict
     out_str = "{" + "\n".join("{!r}: {!r},".format(k, v) for k, v in d.items()) + "}"
@@ -1233,15 +1419,15 @@ def plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_dat
     lab_i = np.where([d == 'label' for d in dsc.variable_types])[0][0]
     label_var_name = dsc.labels[lab_i]
     # before we do that, need to merge synthetic  data w train data
-
+    #set_trace()
     scols = [s.replace('_0', '') for s in joined_synthetic_data.columns]
     joined_synthetic_data.columns = scols
-    synthetic_and_orig_data = pd.concat([dsc.merge_dat, joined_synthetic_data], axis=0)
+    synthetic_and_orig_data = pd.concat([dsc.merge_dat, joined_synthetic_data], axis=0,ignore_index=True)
 
     synthetic_and_orig_data=synthetic_and_orig_data.sample(frac=1) #shuffle for random
     # and then we should be able to use facet type to plot 4 varying conditions:
     # unlabel,label,validation,synthetic
-
+    ####set_trace()
     for v_i in order_to_generate:
 
         # get ancestors for this variable
@@ -1259,7 +1445,7 @@ def plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_dat
                                x=current_variable_label,
                                color=current_variable_label,
                                facet_col="type")
-            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=5)
+            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=scale_for_indiv_plot)
             # and get source also
 
             for s in sv:
@@ -1273,8 +1459,9 @@ def plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_dat
                                  x=yv,
                                  y=xv,
                                  color=label_var_name, facet_col="type",
-                                 color_continuous_scale="bluered", opacity=0.3)
-                fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=5)
+                                 color_continuous_scale="bluered", opacity=0.3,
+                                 render_mode='webgl')
+                fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=scale_for_indiv_plot)
 
 
 
@@ -1290,7 +1477,7 @@ def plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_dat
                                color_discrete_map={0: "blue", 1: "red"}
                                )
 
-            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=5)
+            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=scale_for_indiv_plot)
         else:
             # we have conditional variables, but get the marginal dist first
             xv = current_variable_label
@@ -1301,7 +1488,7 @@ def plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_dat
                                facet_col="type",
                                histnorm='probability density',
                                color_discrete_map={0: "blue", 1: "red"})
-            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=5)
+            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=scale_for_indiv_plot)
 
             for s in sv:
                 current_source_variable = dsc.labels[s]
@@ -1313,14 +1500,38 @@ def plot_synthetic_and_real_data(hpms_dict, dsc, args, s_i, joined_synthetic_dat
                                  x=current_source_variable,
                                  y=current_variable_label,
                                  color=label_var_name, facet_col="type",
-                                 color_continuous_scale="bluered", opacity=0.3)
-                fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=5)
+                                 color_continuous_scale="bluered", opacity=0.3,
+                                 render_mode='webgl')
+                fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=scale_for_indiv_plot)
 
     # split into unlabelled/validation/synthetic and plot
     # get all temporary
     output_img = glob.glob('./{0}/*.png'.format(tmp_plot_dir))
     output_img = [o for o in output_img if 'hyperparameters' not in o]  # removing pil_text_font...
-    output_img = [Image.open(o) for o in output_img]
+    
+    read_ims=[]
+    frac_resize=scale_for_cat_plot
+    for o in output_img:
+        
+        
+        im_in=Image.open(o)
+        
+        im_in_size=im_in.size
+        
+        new_size=(int(im_in_size[0]*frac_resize),int(im_in_size[1]*frac_resize))
+        
+        
+        im_in_small=im_in.resize(new_size)
+        
+        read_ims.append(im_in_small)
+        
+        del im_in
+        
+        
+        ####set_trace()
+        #output_img = [Image.open(o) for o in output_img]
+
+    output_img=read_ims
 
     images = output_img
     widths, heights = zip(*(i.size for i in images))
@@ -1386,7 +1597,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import plotly.express as px
 
-def plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir='synthetic_data'):
+def plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir='synthetic_data',scale_for_indiv_plot=1,subset_large_data=False):
     print('constructing 2d plots')
     tmp_plot_dir = 'TEMPORARY_PLOT_DIR_d_n_{0}_s_i_{1}'.format(dsc.d_n, s_i)
     # check existence purge if so
@@ -1411,8 +1622,17 @@ def plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir='synthetic_data'):
     # the data still preserves order when  using 'facet_col' option in plotly
     orig_type_order=dsc.merge_dat.type.unique()
     dsc.merge_dat['type'] = pd.Categorical(dsc.merge_dat['type'], orig_type_order)
-
+#
     dsc.merge_dat=dsc.merge_dat.sample(frac=1) #randomise the data frame for plotting
+
+
+    using_smaller_dscm=False
+
+    if dsc.merge_dat.shape[0]>2000 and subset_large_data:
+        
+        dscm_smaller=dsc.merge_dat.sample(n=2000)
+        using_smaller_dscm=True
+        
 
     # now re-sort, as specified earlier
     dsc.merge_dat=dsc.merge_dat.sort_values('type')
@@ -1436,26 +1656,41 @@ def plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir='synthetic_data'):
         if dsc.var_types[v_i] == 'label':
             xv = current_variable_label
             yv = ""
+            
+            
+            
             fig = px.histogram(dsc.merge_dat,
                                x=current_variable_label,
                                color=current_variable_label,
                                facet_col="type")
-            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=5)
+            
+            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=scale_for_indiv_plot)
             # and get source also
             for s in sv:
                 current_source_variable = dsc.var_names[s]
                 xv = dsc.label_names_alphan[current_source_variable][0]
                 yv = dsc.label_names_alphan[current_source_variable][1]
-                fig = px.scatter(dsc.merge_dat,
-                                 x=xv,
-                                 y=yv,
-                                 color=label_var_name, facet_col="type",
-                                 color_continuous_scale="bluered_r", opacity=0.1)
+                
+                
+                if using_smaller_dscm:
+                    fig = px.scatter(dscm_smaller,
+                                    x=xv,
+                                    y=yv,
+                                    color=label_var_name, facet_col="type",
+                                    color_continuous_scale="bluered_r", opacity=0.1,
+                                    render_mode='webgl')
+                else:
+                    fig = px.scatter(dsc.merge_dat,
+                                    x=xv,
+                                    y=yv,
+                                    color=label_var_name, facet_col="type",
+                                    color_continuous_scale="bluered_r", opacity=0.1,
+                                    render_mode='webgl')
                 fig.update_yaxes(
                     scaleanchor="x",
                     scaleratio=1,
                 )
-                fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=5)
+                fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=scale_for_indiv_plot)
 
         else:
             # we have conditional variables, but get the marginal dist first
@@ -1463,16 +1698,26 @@ def plot_2d_data_w_dag(dsc, s_i,synthetic_data_dir='synthetic_data'):
             yv = dsc.label_names_alphan[current_variable_label][1]
             # transpose x,y even tho x->y so we get better resolution in X
             # because the plots are strteched such that Y is larger than X
-            fig = px.scatter(dsc.merge_dat,
-                             x=xv,
-                             y=yv,
-                             color=label_var_name, facet_col="type",
-                             color_continuous_scale="bluered_r", opacity=0.1)
+            
+            if using_smaller_dscm:
+                fig = px.scatter(dscm_smaller,
+                                x=xv,
+                                y=yv,
+                                color=label_var_name, facet_col="type",
+                                color_continuous_scale="bluered_r", opacity=0.1,
+                                render_mode='webgl')
+            else:
+                fig = px.scatter(dsc.merge_dat,
+                                x=xv,
+                                y=yv,
+                                color=label_var_name, facet_col="type",
+                                color_continuous_scale="bluered_r", opacity=0.1,
+                                render_mode='webgl')
             fig.update_yaxes(
                 scaleanchor="x",
                 scaleratio=1,
             )
-            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=5)
+            fig.write_image("./{1}/{0}.png".format(xv + '_' + yv, tmp_plot_dir), scale=scale_for_indiv_plot)
 
     # save image of DAG
     fig, ax = plt.subplots()
@@ -1623,6 +1868,7 @@ def plot_2d_single_variable_data_type(dsc,s_i,data_type,variable_name,synthetic_
                      y=yv,
                      color=label_var_name,
                      color_discrete_map=color_discrete_map,
+                     render_mode='webgl',
                      color_continuous_scale="bluered_r", opacity=0.5)
     fig.update_yaxes(
         scaleanchor="x",
@@ -1659,7 +1905,7 @@ def plot_2d_single_variable_data_type(dsc,s_i,data_type,variable_name,synthetic_
 
     fig.update_traces(marker={'size': 10})
 
-    fig.write_image(im_save_fn, scale=5)
+    fig.write_image(im_save_fn, scale=scale_for_indiv_plot)
 
     print(f'image written for: {variable_name},\t {data_type}')
 
@@ -1786,7 +2032,7 @@ def get_median_pwd(in_tensor):
 #     #from IPython.core.debugger import set_trace
     
     
-#     #set_trace()
+#     ####set_trace()
     
     
     
