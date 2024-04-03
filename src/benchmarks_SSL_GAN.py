@@ -112,7 +112,7 @@ class SGANClassifier(pl.LightningModule):
         #guess_label_real=self.disc(x_l)+1e-6
 
         # 3. get adversarial loss on fake data
-        guess_label_fake = self.disc(synthetic_dat.detach())#+1e-6
+        guess_label_fake = self.disc(synthetic_dat.detach())#+1e-6 #nb detach is crucial in this context
         exp_ret = torch.exp(guess_label_fake)+1e-6
         z_gz = exp_ret.sum(dim=-1)
         D_gz = z_gz / (z_gz + 1)

@@ -888,9 +888,9 @@ if __name__=='__main__':
         with pd.option_context("max_colwidth", 1000):
             with open("/media/krillman/240GB_DATA/codes2/SSL_GCM/collating_results/all_combined_results.tex", "w", encoding="utf-8") as fh:
                 latek_df.to_latex(buf=fh,
-                                  escape=False,
-                                  column_format='rccccccccccc',
-                                  formatters=fmts)
+                                    escape=False,
+                                    column_format='rccccccccccc',
+                                    formatters=fmts)
 
 
 
