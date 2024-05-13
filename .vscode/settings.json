@@ -1,0 +1,25 @@
+{
+    "editor.mouseWheelZoom": true,
+    "editor.fontFamily": "Menlo, Monaco, 'Courier New', monospace",
+    "editor.bracketPairColorization.independentColorPoolPerBracketType": true,
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#ba9a94",
+        "activityBar.background": "#ba9a94",
+        "activityBar.foreground": "#15202b",
+        "activityBar.inactiveForeground": "#15202b99",
+        "activityBarBadge.background": "#4b7452",
+        "activityBarBadge.foreground": "#e7e7e7",
+        "commandCenter.border": "#15202b99",
+        "sash.hoverBorder": "#ba9a94",
+        "statusBar.background": "#a67d75",
+        "statusBar.foreground": "#15202b",
+        "statusBarItem.hoverBackground": "#8d635b",
+        "statusBarItem.remoteBackground": "#a67d75",
+        "statusBarItem.remoteForeground": "#15202b",
+        "titleBar.activeBackground": "#a67d75",
+        "titleBar.activeForeground": "#15202b",
+        "titleBar.inactiveBackground": "#a67d7599",
+        "titleBar.inactiveForeground": "#15202b99"
+    },
+    "peacock.color": "#a67d75",
+}
